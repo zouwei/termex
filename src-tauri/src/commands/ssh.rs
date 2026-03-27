@@ -89,9 +89,9 @@ pub async fn ssh_connect(
         .await
         .map_err(|e| emit_error(&app, &status_event, &e))?;
 
-    // Store session (sync — no await while holding lock)
+    // Store session
     {
-        let mut sessions = state.sessions.write().expect("sessions lock poisoned");
+        let mut sessions = state.sessions.write().await;
         sessions.insert(session_id.clone(), ssh_session);
     }
 
@@ -122,8 +122,16 @@ pub async fn ssh_disconnect(
     state: State<'_, AppState>,
     session_id: String,
 ) -> Result<(), String> {
+    // Also close SFTP session if open
+    {
+        let mut sftp_sessions = state.sftp_sessions.write().await;
+        if let Some(sftp) = sftp_sessions.remove(&session_id) {
+            let _ = sftp.close().await;
+        }
+    }
+
     let session = {
-        let mut sessions = state.sessions.write().expect("sessions lock poisoned");
+        let mut sessions = state.sessions.write().await;
         sessions
             .remove(&session_id)
             .ok_or_else(|| SshError::SessionNotFound(session_id.clone()).to_string())?
@@ -133,12 +141,12 @@ pub async fn ssh_disconnect(
 
 /// Writes user input data to the SSH shell channel. Non-blocking.
 #[tauri::command]
-pub fn ssh_write(
+pub async fn ssh_write(
     state: State<'_, AppState>,
     session_id: String,
     data: Vec<u8>,
 ) -> Result<(), String> {
-    let sessions = state.sessions.read().expect("sessions lock poisoned");
+    let sessions = state.sessions.read().await;
     let session = sessions
         .get(&session_id)
         .ok_or_else(|| SshError::SessionNotFound(session_id).to_string())?;
@@ -147,13 +155,13 @@ pub fn ssh_write(
 
 /// Resizes the terminal window for an SSH session. Non-blocking.
 #[tauri::command]
-pub fn ssh_resize(
+pub async fn ssh_resize(
     state: State<'_, AppState>,
     session_id: String,
     cols: u32,
     rows: u32,
 ) -> Result<(), String> {
-    let sessions = state.sessions.read().expect("sessions lock poisoned");
+    let sessions = state.sessions.read().await;
     let session = sessions
         .get(&session_id)
         .ok_or_else(|| SshError::SessionNotFound(session_id).to_string())?;

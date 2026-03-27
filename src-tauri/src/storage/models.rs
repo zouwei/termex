@@ -120,6 +120,15 @@ impl ForwardType {
             Self::Dynamic => "dynamic",
         }
     }
+
+    /// Parses from database string representation.
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "remote" => Self::Remote,
+            "dynamic" => Self::Dynamic,
+            _ => Self::Local,
+        }
+    }
 }
 
 /// A port forwarding rule associated with a server.

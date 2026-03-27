@@ -5,6 +5,7 @@ use russh::client;
 use super::auth::ClientHandler;
 use super::channel::{ChannelCommand, ChannelHandle, spawn_channel_task};
 use super::SshError;
+use crate::sftp::session::SftpHandle;
 
 /// Represents an active SSH session with its shell channel.
 ///
@@ -40,6 +41,11 @@ impl SshSession {
     /// Returns a mutable reference to the client handle for authentication.
     pub fn handle_mut(&mut self) -> &mut client::Handle<ClientHandler> {
         &mut self.handle
+    }
+
+    /// Returns a reference to the client handle (e.g. for opening SFTP channels).
+    pub fn handle(&self) -> &client::Handle<ClientHandler> {
+        &self.handle
     }
 
     /// Opens a shell channel with a pseudo-terminal.
@@ -86,6 +92,13 @@ impl SshSession {
         ch.cmd_tx
             .send(ChannelCommand::Resize(cols, rows))
             .map_err(|_| SshError::AlreadyDisconnected)
+    }
+
+    /// Opens an SFTP subsystem channel on this SSH connection.
+    pub async fn open_sftp(&self) -> Result<SftpHandle, SshError> {
+        SftpHandle::open(&self.handle)
+            .await
+            .map_err(|e| SshError::ChannelError(e.to_string()))
     }
 
     /// Disconnects the SSH session and cleans up resources.

@@ -10,10 +10,15 @@ import SettingsModal from "@/components/settings/SettingsModal.vue";
 import TerminalTabs from "@/components/terminal/TerminalTabs.vue";
 import TerminalPane from "@/components/terminal/TerminalPane.vue";
 import StatusBar from "@/components/terminal/StatusBar.vue";
+import SftpPanel from "@/components/sftp/SftpPanel.vue";
+import { useSftpStore } from "@/stores/sftpStore";
+import { useSettingsStore } from "@/stores/settingsStore";
 
 const { t } = useI18n();
 const serverStore = useServerStore();
 const sessionStore = useSessionStore();
+const sftpStore = useSftpStore();
+const settingsStore = useSettingsStore();
 
 const sidebarVisible = ref(true);
 const connectModalVisible = ref(false);
@@ -32,6 +37,7 @@ useShortcuts({
 });
 
 onMounted(() => {
+  settingsStore.loadAll();
   serverStore.fetchAll();
 });
 </script>
@@ -74,6 +80,12 @@ onMounted(() => {
           </div>
         </div>
       </div>
+
+      <!-- SFTP Panel -->
+      <SftpPanel
+        v-if="sftpStore.panelVisible"
+        class="h-64"
+      />
 
       <StatusBar />
     </div>

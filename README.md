@@ -49,7 +49,7 @@ pnpm tauri build
 
 ## Features
 
-### Core (V0.1)
+### Core (v0.1.0)
 - **SSH Connection Management** -- encrypted credential storage with AES-256-GCM
 - **Server Grouping** -- tree view with color-coded groups, search, hover tooltips
 - **Authentication** -- password & RSA/Ed25519 key with optional passphrase
@@ -58,13 +58,14 @@ pnpm tauri build
 - **Master Password** -- optional Argon2id-derived encryption key, zero-knowledge
 - **i18n** -- Chinese and English out of the box
 
-### Productivity (V0.5)
+### Productivity (v0.2.0 ~ v0.4.0)
 - SFTP file browser (dual-pane, drag & drop)
 - SSH port forwarding (local / remote / dynamic)
 - Encrypted config export & import (`.termex` format)
 - Theme system (Dark / Light / Custom)
+- Terminal settings persistence & UX polish
 
-### AI-Powered (V1.0)
+### AI-Powered (v0.5.0 ~ v0.6.0)
 - Dangerous command detection & blocking
 - AI command explanation
 - Natural language to shell commands
@@ -175,10 +176,17 @@ git push origin main --tags
 
 - [x] Product requirements & UI prototype
 - [x] Detailed technical design
-- [x] V0.1 -- MVP (SSH + Terminal + Server Management)
-- [ ] V0.5 -- SFTP + Port Forwarding + Config Export
-- [ ] V1.0 -- AI Features (Detection, Explanation, NL2Cmd)
-- [ ] V1.5 -- Session Recording, Monitoring, Plugins
+- [x] v0.1.0 -- MVP (SSH + Terminal + Server Management)
+- [ ] v0.2.0 -- SFTP File Browser
+- [ ] v0.3.0 -- Port Forwarding + Config Export/Import
+- [ ] v0.4.0 -- Theme System + Settings Persistence + UX Polish
+- [ ] v0.5.0 -- AI Core: Danger Detection + Command Explanation
+- [ ] v0.6.0 -- AI Advanced: NL2Cmd + Smart Autocomplete
+- [ ] v0.7.0 -- Session Recording + Server Monitoring
+- [ ] v0.8.0 -- Plugin System + Extensibility
+- [ ] v0.9.0 -- Stable Release
+
+> See [docs/iterations/](docs/iterations/) for detailed plans of each version.
 
 ## Contributing
 

@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod channel;
+pub mod forward;
 pub mod session;
 
 /// SSH error types.
