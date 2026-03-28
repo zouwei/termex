@@ -66,6 +66,14 @@ jobs:
             librsvg2-dev \
             patchelf
 
+      # ── Windows OpenSSL (required by SQLCipher) ──────────────
+      - name: Install OpenSSL (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install openssl -y --no-progress
+          echo "OPENSSL_DIR=C:\Program Files\OpenSSL-Win64" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       # ── Windows WiX Toolset ─────────────────────────────────
       - name: Install WiX Toolset (Windows)
         if: runner.os == 'Windows'
