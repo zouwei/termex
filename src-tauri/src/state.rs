@@ -49,7 +49,58 @@ impl AppState {
         // Migrate legacy encrypted credentials to OS keychain
         state.migrate_to_keychain();
 
+        // Preload all keychain credentials into in-memory cache
+        // so subsequent access never triggers OS password prompts
+        state.preload_credentials();
+
         Ok(state)
+    }
+
+    /// Preloads all known keychain credentials into the in-memory cache.
+    /// This batch-reads from the OS keychain once on startup so that all
+    /// subsequent `keychain::get()` calls are served from memory.
+    fn preload_credentials(&self) {
+        if !keychain::is_available() {
+            return;
+        }
+
+        let mut keys: Vec<String> = Vec::new();
+
+        // Collect server credential keys
+        let _ = self.db.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id FROM servers WHERE password_keychain_id IS NOT NULL
+                 OR passphrase_keychain_id IS NOT NULL"
+            )?;
+            let ids: Vec<String> = stmt
+                .query_map([], |row| row.get(0))?
+                .filter_map(|r| r.ok())
+                .collect();
+            for id in ids {
+                keys.push(keychain::ssh_password_key(&id));
+                keys.push(keychain::ssh_passphrase_key(&id));
+            }
+            Ok(())
+        });
+
+        // Collect AI provider API key keys
+        let _ = self.db.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id FROM ai_providers WHERE api_key_keychain_id IS NOT NULL"
+            )?;
+            let ids: Vec<String> = stmt
+                .query_map([], |row| row.get(0))?
+                .filter_map(|r| r.ok())
+                .collect();
+            for id in ids {
+                keys.push(keychain::ai_apikey_key(&id));
+            }
+            Ok(())
+        });
+
+        if !keys.is_empty() {
+            keychain::preload(&keys);
+        }
     }
 
     /// Migrates legacy `password_enc`/`api_key_enc` fields to the OS keychain.

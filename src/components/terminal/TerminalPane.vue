@@ -72,3 +72,9 @@ defineExpose({ fit, dispose });
     </div>
   </div>
 </template>
+
+<style scoped>
+:deep(.xterm) {
+  padding: 6px;
+}
+</style>

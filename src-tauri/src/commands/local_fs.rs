@@ -76,6 +76,12 @@ pub struct SecurityStatus {
     pub protection_mode: String,
 }
 
+/// Opens a URL in the system default browser.
+#[tauri::command]
+pub fn open_url(url: String) -> Result<(), String> {
+    open::that(&url).map_err(|e| e.to_string())
+}
+
 /// Returns the current security/keychain status.
 #[tauri::command]
 pub fn security_status(state: State<'_, AppState>) -> Result<SecurityStatus, String> {

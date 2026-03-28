@@ -14,6 +14,7 @@ import StatusBar from "@/components/terminal/StatusBar.vue";
 import SftpPanel from "@/components/sftp/SftpPanel.vue";
 import AiPanel from "@/components/ai/AiPanel.vue";
 import UpdateDialog from "@/components/settings/UpdateDialog.vue";
+import PrivacyDialog from "@/components/settings/PrivacyDialog.vue";
 import { useSftpStore } from "@/stores/sftpStore";
 import { useSettingsStore } from "@/stores/settingsStore";
 import { checkForUpdate, shouldCheckToday } from "@/utils/update";
@@ -30,6 +31,7 @@ const settingsModalVisible = ref(false);
 const editServerId = ref<string | null>(null);
 const aiPanelVisible = ref(false);
 const updateDialogVisible = ref(false);
+const privacyDialogVisible = ref(false);
 
 function openNewConnection() {
   editServerId.value = null;
@@ -95,7 +97,7 @@ onMounted(async () => {
     updateDialogVisible.value = true;
   }));
   unlisteners.push(await tauriListen("menu://privacy-policy", () => {
-    window.open("https://github.com/user/termex/blob/main/PRIVACY.md", "_blank");
+    privacyDialogVisible.value = true;
   }));
 
   // Auto-check for updates (once per day)
@@ -148,7 +150,7 @@ onBeforeUnmount(() => {
             <!-- Welcome screen -->
             <div
               v-if="sessionStore.tabs.length === 0"
-              class="absolute inset-0 flex items-center justify-center"
+              class="absolute inset-0 flex items-center justify-center select-none"
             >
               <div class="text-center">
                 <h1 class="text-4xl font-bold mb-2" style="color: var(--tm-text-primary)">
@@ -187,5 +189,6 @@ onBeforeUnmount(() => {
     />
     <SettingsModal v-model:visible="settingsModalVisible" />
     <UpdateDialog v-if="updateDialogVisible" @close="updateDialogVisible = false" />
+    <PrivacyDialog v-if="privacyDialogVisible" @close="privacyDialogVisible = false" />
   </div>
 </template>

@@ -4,6 +4,12 @@
 //! - macOS: Keychain Services (Secure Enclave)
 //! - Windows: Credential Manager (DPAPI)
 //! - Linux: Secret Service (GNOME Keyring / KDE Wallet)
+//!
+//! An in-memory cache avoids repeated keychain prompts. Credentials are loaded
+//! once on startup (via `preload`) and served from memory thereafter.
+
+use std::collections::HashMap;
+use std::sync::{OnceLock, RwLock};
 
 use thiserror::Error;
 
@@ -17,6 +23,12 @@ pub enum KeychainError {
     NotFound(String),
     #[error("keychain operation failed: {0}")]
     OperationFailed(String),
+}
+
+/// Returns a reference to the global in-memory credential cache.
+fn cache() -> &'static RwLock<HashMap<String, String>> {
+    static CACHE: OnceLock<RwLock<HashMap<String, String>>> = OnceLock::new();
+    CACHE.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
 /// Checks whether the OS keychain is available by doing a real store+delete probe.
@@ -33,26 +45,49 @@ pub fn is_available() -> bool {
     true
 }
 
-/// Stores a credential in the OS keychain.
+/// Stores a credential in the OS keychain and updates the in-memory cache.
 pub fn store(key: &str, value: &str) -> Result<(), KeychainError> {
     let entry = keyring::Entry::new(SERVICE_NAME, key)
         .map_err(|e| KeychainError::NotAvailable(e.to_string()))?;
     entry
         .set_password(value)
-        .map_err(|e| KeychainError::OperationFailed(e.to_string()))
+        .map_err(|e| KeychainError::OperationFailed(e.to_string()))?;
+    // Update cache
+    if let Ok(mut c) = cache().write() {
+        c.insert(key.to_string(), value.to_string());
+    }
+    Ok(())
 }
 
-/// Retrieves a credential from the OS keychain.
+/// Retrieves a credential. Returns from in-memory cache if available,
+/// otherwise reads from OS keychain and caches the result.
 pub fn get(key: &str) -> Result<String, KeychainError> {
+    // Check cache first
+    if let Ok(c) = cache().read() {
+        if let Some(value) = c.get(key) {
+            return Ok(value.clone());
+        }
+    }
+    // Cache miss: read from OS keychain
     let entry = keyring::Entry::new(SERVICE_NAME, key)
         .map_err(|e| KeychainError::NotAvailable(e.to_string()))?;
-    entry
+    let value = entry
         .get_password()
-        .map_err(|e| KeychainError::NotFound(e.to_string()))
+        .map_err(|e| KeychainError::NotFound(e.to_string()))?;
+    // Store in cache for future reads
+    if let Ok(mut c) = cache().write() {
+        c.insert(key.to_string(), value.clone());
+    }
+    Ok(value)
 }
 
-/// Deletes a credential from the OS keychain.
+/// Deletes a credential from both the in-memory cache and the OS keychain.
 pub fn delete(key: &str) -> Result<(), KeychainError> {
+    // Remove from cache
+    if let Ok(mut c) = cache().write() {
+        c.remove(key);
+    }
+    // Delete from OS keychain
     let entry = keyring::Entry::new(SERVICE_NAME, key)
         .map_err(|e| KeychainError::NotAvailable(e.to_string()))?;
     // Ignore "not found" errors on delete
@@ -60,6 +95,22 @@ pub fn delete(key: &str) -> Result<(), KeychainError> {
         Ok(()) => Ok(()),
         Err(keyring::Error::NoEntry) => Ok(()),
         Err(e) => Err(KeychainError::OperationFailed(e.to_string())),
+    }
+}
+
+/// Batch-loads credentials from the OS keychain into the in-memory cache.
+/// Call once on startup to avoid repeated keychain password prompts.
+pub fn preload(keys: &[String]) {
+    let mut c = match cache().write() {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+    for key in keys {
+        if let Ok(entry) = keyring::Entry::new(SERVICE_NAME, key) {
+            if let Ok(value) = entry.get_password() {
+                c.insert(key.clone(), value);
+            }
+        }
     }
 }
 

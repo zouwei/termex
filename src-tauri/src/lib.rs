@@ -234,6 +234,7 @@ pub fn run() {
             commands::local_fs::local_home_dir,
             commands::local_fs::local_list_dir,
             commands::local_fs::security_status,
+            commands::local_fs::open_url,
             // Update
             commands::update::get_platform_info,
             commands::update::download_update,

@@ -44,7 +44,7 @@ export type DownloadStatus = "idle" | "downloading" | "completed" | "error";
 
 // ── Constants ──
 
-const GITHUB_REPO = "user/termex"; // TODO: replace with real repo
+const GITHUB_REPO = "zouwei/termex";
 const RELEASES_API = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
 
 // ── Reactive State ──
