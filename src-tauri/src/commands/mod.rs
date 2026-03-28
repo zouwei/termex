@@ -11,3 +11,4 @@ pub mod ai;
 pub mod plugin;
 pub mod recording;
 pub mod local_fs;
+pub mod update;

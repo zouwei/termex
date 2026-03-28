@@ -85,12 +85,25 @@ fn build_menu(app: &tauri::App) -> Result<tauri::menu::Menu<tauri::Wry>, Box<dyn
         .fullscreen()
         .build()?;
 
+    // Help submenu
+    let check_update = MenuItemBuilder::with_id("check_update", "Check for Updates...")
+        .build(app)?;
+    let privacy_policy = MenuItemBuilder::with_id("privacy_policy", "Privacy Policy")
+        .build(app)?;
+
+    let help_menu = SubmenuBuilder::new(app, "Help")
+        .item(&check_update)
+        .separator()
+        .item(&privacy_policy)
+        .build()?;
+
     let menu = MenuBuilder::new(app)
         .item(&app_menu)
         .item(&file_menu)
         .item(&edit_menu)
         .item(&view_menu)
         .item(&window_menu)
+        .item(&help_menu)
         .build()?;
 
     Ok(menu)
@@ -127,6 +140,12 @@ pub fn run() {
                     }
                     "toggle_sftp" => {
                         let _ = app_handle.emit("menu://toggle-sftp", ());
+                    }
+                    "check_update" => {
+                        let _ = app_handle.emit("menu://check-update", ());
+                    }
+                    "privacy_policy" => {
+                        let _ = app_handle.emit("menu://privacy-policy", ());
                     }
                     _ => {}
                 }
@@ -215,6 +234,10 @@ pub fn run() {
             commands::local_fs::local_home_dir,
             commands::local_fs::local_list_dir,
             commands::local_fs::security_status,
+            // Update
+            commands::update::get_platform_info,
+            commands::update::download_update,
+            commands::update::exit_app,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Termex");

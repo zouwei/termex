@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useSessionStore } from "@/stores/sessionStore";
+import { checkStatus as updateCheckStatus } from "@/utils/update";
+
+const emit = defineEmits<{
+  (e: "open-update"): void;
+}>();
 
 const sessionStore = useSessionStore();
 
@@ -44,6 +49,15 @@ const statusColor = computed(() => {
     style="background: var(--tm-statusbar-bg); border-top: 1px solid var(--tm-border)"
   >
     <span :class="statusColor">{{ statusText }}</span>
+
+    <button
+      v-if="updateCheckStatus === 'available'"
+      class="ml-2 text-[10px] text-primary-400 hover:text-primary-300 transition-colors cursor-pointer"
+      @click="emit('open-update')"
+    >
+      &#x2B06; {{ $t("update.newVersion") }}
+    </button>
+
     <span class="ml-auto" style="color: var(--tm-text-muted)">UTF-8</span>
   </div>
 </template>

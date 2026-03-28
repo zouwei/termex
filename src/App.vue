@@ -13,8 +13,10 @@ import TerminalPane from "@/components/terminal/TerminalPane.vue";
 import StatusBar from "@/components/terminal/StatusBar.vue";
 import SftpPanel from "@/components/sftp/SftpPanel.vue";
 import AiPanel from "@/components/ai/AiPanel.vue";
+import UpdateDialog from "@/components/settings/UpdateDialog.vue";
 import { useSftpStore } from "@/stores/sftpStore";
 import { useSettingsStore } from "@/stores/settingsStore";
+import { checkForUpdate, shouldCheckToday } from "@/utils/update";
 
 const { t } = useI18n();
 const serverStore = useServerStore();
@@ -27,6 +29,7 @@ const connectModalVisible = ref(false);
 const settingsModalVisible = ref(false);
 const editServerId = ref<string | null>(null);
 const aiPanelVisible = ref(false);
+const updateDialogVisible = ref(false);
 
 function openNewConnection() {
   editServerId.value = null;
@@ -88,6 +91,17 @@ onMounted(async () => {
       }
     }
   }));
+  unlisteners.push(await tauriListen("menu://check-update", () => {
+    updateDialogVisible.value = true;
+  }));
+  unlisteners.push(await tauriListen("menu://privacy-policy", () => {
+    window.open("https://github.com/user/termex/blob/main/PRIVACY.md", "_blank");
+  }));
+
+  // Auto-check for updates (once per day)
+  if (shouldCheckToday(null)) {
+    checkForUpdate().catch(() => {});
+  }
 });
 
 onBeforeUnmount(() => {
@@ -162,7 +176,7 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- Status bar (full width, below sidebar + content) -->
-    <StatusBar />
+    <StatusBar @open-update="updateDialogVisible = true" />
 
     <!-- Modals -->
     <ConnectModal
@@ -170,5 +184,6 @@ onBeforeUnmount(() => {
       :edit-id="editServerId"
     />
     <SettingsModal v-model:visible="settingsModalVisible" />
+    <UpdateDialog v-if="updateDialogVisible" @close="updateDialogVisible = false" />
   </div>
 </template>

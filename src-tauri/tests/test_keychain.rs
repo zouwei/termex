@@ -1,5 +1,16 @@
 use termex_lib::keychain;
 
+/// Probe whether keychain actually works (not just Entry::new).
+/// On headless Linux CI, `is_available()` may return true but store/get fail.
+fn keychain_works() -> bool {
+    let probe_key = "termex:test:probe:ci";
+    if keychain::store(probe_key, "probe").is_err() {
+        return false;
+    }
+    let _ = keychain::delete(probe_key);
+    true
+}
+
 #[test]
 fn test_key_generation() {
     assert_eq!(keychain::ssh_password_key("abc"), "termex:ssh:password:abc");
@@ -18,12 +29,12 @@ fn test_key_format_includes_uuid() {
 #[test]
 fn test_is_available() {
     let available = keychain::is_available();
-    assert!(available || !available); // just ensure no panic
+    assert!(available || !available);
 }
 
 #[test]
 fn test_store_get_delete_lifecycle() {
-    if !keychain::is_available() { return; }
+    if !keychain_works() { return; }
     let key = "termex:test:lifecycle:unit";
     let value = "test_secret_value_12345";
     keychain::store(key, value).expect("store should succeed");
@@ -35,7 +46,7 @@ fn test_store_get_delete_lifecycle() {
 
 #[test]
 fn test_store_overwrite() {
-    if !keychain::is_available() { return; }
+    if !keychain_works() { return; }
     let key = "termex:test:overwrite:unit";
     keychain::store(key, "first_value").expect("first store");
     keychain::store(key, "second_value").expect("overwrite store");
@@ -46,21 +57,21 @@ fn test_store_overwrite() {
 
 #[test]
 fn test_delete_nonexistent_is_ok() {
-    if !keychain::is_available() { return; }
+    if !keychain_works() { return; }
     let result = keychain::delete("termex:test:nonexistent:key");
     assert!(result.is_ok());
 }
 
 #[test]
 fn test_get_nonexistent_returns_error() {
-    if !keychain::is_available() { return; }
+    if !keychain_works() { return; }
     let result = keychain::get("termex:test:definitely:missing");
     assert!(result.is_err());
 }
 
 #[test]
 fn test_store_empty_value() {
-    if !keychain::is_available() { return; }
+    if !keychain_works() { return; }
     let key = "termex:test:empty:unit";
     keychain::store(key, "").expect("store empty string");
     let retrieved = keychain::get(key).expect("get empty string");
@@ -70,7 +81,7 @@ fn test_store_empty_value() {
 
 #[test]
 fn test_store_unicode_value() {
-    if !keychain::is_available() { return; }
+    if !keychain_works() { return; }
     let key = "termex:test:unicode:unit";
     let value = "密码测试🔐";
     keychain::store(key, value).expect("store unicode");
@@ -81,7 +92,7 @@ fn test_store_unicode_value() {
 
 #[test]
 fn test_ssh_and_ai_keys_independent() {
-    if !keychain::is_available() { return; }
+    if !keychain_works() { return; }
     let server_id = "test-server-id-001";
     let provider_id = "test-provider-id-001";
     let pw_key = keychain::ssh_password_key(server_id);

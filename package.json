@@ -24,7 +24,10 @@
     "vue-i18n": "^9.14.0"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["sharp", "esbuild"]
+    "onlyBuiltDependencies": [
+      "sharp",
+      "esbuild"
+    ]
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",

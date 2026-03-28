@@ -163,6 +163,8 @@ RUST_LOG=debug pnpm tauri dev     # Dev with verbose Rust logging
 pnpm version:bump patch           # 0.1.0 → 0.1.1
 pnpm version:bump minor           # 0.1.0 → 0.2.0
 pnpm version:bump 0.2.0           # explicit version
+### specify version number
+pnpm version:bump 0.2.0         # 直接设为 0.2.0
 ```
 
 ## Documentation

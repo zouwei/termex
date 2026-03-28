@@ -19,13 +19,18 @@ pub enum KeychainError {
     OperationFailed(String),
 }
 
-/// Checks whether the OS keychain is available.
+/// Checks whether the OS keychain is available by doing a real store+delete probe.
 pub fn is_available() -> bool {
-    // Try a probe read — if keyring can be constructed, it's available
-    match keyring::Entry::new(SERVICE_NAME, "__termex_probe__") {
-        Ok(_) => true,
-        Err(_) => false,
+    let entry = match keyring::Entry::new(SERVICE_NAME, "__termex_probe__") {
+        Ok(e) => e,
+        Err(_) => return false,
+    };
+    // Attempt a real write — on headless Linux this will fail with DBus errors
+    if entry.set_password("probe").is_err() {
+        return false;
     }
+    let _ = entry.delete_credential();
+    true
 }
 
 /// Stores a credential in the OS keychain.
