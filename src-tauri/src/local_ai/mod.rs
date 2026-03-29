@@ -45,11 +45,23 @@ impl LlamaServerState {
         // If same model is already loaded and running, return the existing port
         if let Some(loaded) = &self.loaded_model {
             let current_model = model_path.to_string_lossy().to_string();
-            if loaded == &current_model && self.is_running() {
+            eprintln!(">>> [MOD] Checking if model already loaded:");
+            eprintln!(">>> [MOD]   Loaded model: {}", loaded);
+            eprintln!(">>> [MOD]   Current model: {}", current_model);
+            eprintln!(">>> [MOD]   Models match: {}", loaded == &current_model);
+            eprintln!(">>> [MOD]   PID: {:?}", self.process_id);
+            let is_running = self.is_running();
+            eprintln!(">>> [MOD]   Process running: {}", is_running);
+
+            if loaded == &current_model && is_running {
                 eprintln!(">>> [MOD] Same model already running on port {:?}", self.port);
                 log::info!("Model already loaded: {}", loaded);
                 return self.port.ok_or_else(|| "Port not set but process is running".to_string());
+            } else {
+                eprintln!(">>> [MOD] Restarting: model mismatch or process not running");
             }
+        } else {
+            eprintln!(">>> [MOD] No previous model loaded");
         }
 
         // Different model or process not running, stop the old one
@@ -180,8 +192,11 @@ impl LlamaServerState {
     /// Checks if the process is still running.
     pub fn is_running(&self) -> bool {
         if let Some(pid) = self.process_id {
-            check_process_running(pid)
+            let running = check_process_running(pid);
+            eprintln!(">>> [MOD] check_process_running({}) = {}", pid, running);
+            running
         } else {
+            eprintln!(">>> [MOD] No PID stored, process not running");
             false
         }
     }
@@ -204,22 +219,46 @@ fn find_available_port(start: u16, end: u16) -> Result<u16, String> {
 /// Checks if a process with the given PID is still running.
 #[cfg(target_os = "macos")]
 fn check_process_running(pid: u32) -> bool {
-    std::process::Command::new("kill")
+    match std::process::Command::new("kill")
         .arg("-0")
         .arg(pid.to_string())
         .output()
-        .map(|output| output.status.success())
-        .unwrap_or(false)
+    {
+        Ok(output) => {
+            let running = output.status.success();
+            eprintln!(">>> [CHECK] kill -0 {} = {}", pid, running);
+            if !running {
+                eprintln!(">>> [CHECK] kill stderr: {}", String::from_utf8_lossy(&output.stderr));
+            }
+            running
+        }
+        Err(e) => {
+            eprintln!(">>> [CHECK] kill -0 {} failed: {}", pid, e);
+            false
+        }
+    }
 }
 
 #[cfg(target_os = "linux")]
 fn check_process_running(pid: u32) -> bool {
-    std::process::Command::new("kill")
+    match std::process::Command::new("kill")
         .arg("-0")
         .arg(pid.to_string())
         .output()
-        .map(|output| output.status.success())
-        .unwrap_or(false)
+    {
+        Ok(output) => {
+            let running = output.status.success();
+            eprintln!(">>> [CHECK] kill -0 {} = {}", pid, running);
+            if !running {
+                eprintln!(">>> [CHECK] kill stderr: {}", String::from_utf8_lossy(&output.stderr));
+            }
+            running
+        }
+        Err(e) => {
+            eprintln!(">>> [CHECK] kill -0 {} failed: {}", pid, e);
+            false
+        }
+    }
 }
 
 #[cfg(target_os = "windows")]
