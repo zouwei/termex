@@ -6,8 +6,9 @@ const { t, locale } = useI18n();
 const settingsStore = useSettingsStore();
 
 function onLanguageChange(val: string) {
-  locale.value = val;
-  settingsStore.language = val;
+  settingsStore.language = val as any;
+  // Update i18n locale to effective language
+  locale.value = settingsStore.effectiveLanguage;
 }
 
 function onThemeChange(val: string) {
@@ -23,9 +24,9 @@ function onThemeChange(val: string) {
     <div>
       <label class="text-xs text-gray-400 mb-1.5 block">{{ t("appearance.theme") }}</label>
       <el-radio-group :model-value="settingsStore.theme" @change="onThemeChange">
+        <el-radio-button value="system">{{ t("appearance.followSystem") }}</el-radio-button>
         <el-radio-button value="dark">Dark</el-radio-button>
         <el-radio-button value="light">Light</el-radio-button>
-        <el-radio-button value="system">System</el-radio-button>
       </el-radio-group>
     </div>
 
@@ -33,6 +34,7 @@ function onThemeChange(val: string) {
     <div>
       <label class="text-xs text-gray-400 mb-1.5 block">{{ t("appearance.language") }}</label>
       <el-select :model-value="settingsStore.language" class="w-48" @change="onLanguageChange">
+        <el-option :label="t('appearance.followSystem')" value="system" />
         <el-option label="简体中文" value="zh-CN" />
         <el-option label="English" value="en-US" />
       </el-select>

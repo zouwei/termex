@@ -41,6 +41,7 @@ export default {
   appearance: {
     theme: "\u4E3B\u9898",
     language: "\u8BED\u8A00",
+    followSystem: "\u8DDF\u968F\u7CFB\u7EDF",
   },
   sftp: {
     title: "SFTP",

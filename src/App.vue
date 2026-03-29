@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onBeforeUnmount, ref } from "vue";
+import { onMounted, onBeforeUnmount, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { tauriInvoke, tauriListen } from "@/utils/tauri";
 import { useServerStore } from "@/stores/serverStore";
@@ -19,7 +19,7 @@ import { useSftpStore } from "@/stores/sftpStore";
 import { useSettingsStore } from "@/stores/settingsStore";
 import { checkForUpdate, shouldCheckToday } from "@/utils/update";
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const serverStore = useServerStore();
 const sessionStore = useSessionStore();
 const sftpStore = useSftpStore();
@@ -63,8 +63,18 @@ useShortcuts({
 
 const unlisteners: Array<() => void> = [];
 
+// Watch language changes and update i18n locale
+watch(
+  () => settingsStore.effectiveLanguage,
+  (lang) => {
+    locale.value = lang;
+  },
+);
+
 onMounted(async () => {
-  settingsStore.loadAll();
+  await settingsStore.loadAll();
+  // Sync loaded language (effective value) to i18n
+  locale.value = settingsStore.effectiveLanguage;
   serverStore.fetchAll();
 
   // Listen for native menu events

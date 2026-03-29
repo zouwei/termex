@@ -1,7 +1,7 @@
 import { defineStore } from "pinia";
-import { ref, watch } from "vue";
+import { ref, watch, computed } from "vue";
 import { tauriInvoke } from "@/utils/tauri";
-import type { ThemeMode } from "@/types/settings";
+import type { ThemeMode, LanguageMode } from "@/types/settings";
 
 /** Terminal color scheme preset. */
 export interface TerminalTheme {
@@ -98,11 +98,28 @@ const BUILTIN_THEMES: Record<string, TerminalTheme> = {
   },
 };
 
+/**
+ * Detect locale from browser settings.
+ */
+function getBrowserLocale(): "en-US" | "zh-CN" {
+  const browserLang = navigator.language || "en-US";
+  if (browserLang.startsWith("en")) return "en-US";
+  if (browserLang.startsWith("zh")) return "zh-CN";
+  return "en-US";
+}
+
+/**
+ * Detect system theme preference.
+ */
+function getSystemTheme(): "dark" | "light" {
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
 export const useSettingsStore = defineStore("settings", () => {
   // ── State ──────────────────────────────────────────────────
 
-  const theme = ref<ThemeMode>("dark");
-  const language = ref("zh-CN");
+  const theme = ref<ThemeMode>("system");
+  const language = ref<LanguageMode>("system");
   const fontFamily = ref("'JetBrains Mono', 'Fira Code', monospace");
   const fontSize = ref(14);
   const cursorStyle = ref<"block" | "underline" | "bar">("block");
@@ -124,7 +141,7 @@ export const useSettingsStore = defineStore("settings", () => {
           theme.value = value as ThemeMode;
           break;
         case "language":
-          language.value = value;
+          language.value = value as LanguageMode;
           break;
         case "fontFamily":
           fontFamily.value = value;
@@ -168,6 +185,22 @@ export const useSettingsStore = defineStore("settings", () => {
     }
   }
 
+  /** Gets the effective theme mode (resolved from "system" if needed). */
+  const effectiveTheme = computed<"dark" | "light">(() => {
+    if (theme.value === "system") {
+      return getSystemTheme();
+    }
+    return theme.value;
+  });
+
+  /** Gets the effective language (resolved from "system" if needed). */
+  const effectiveLanguage = computed<"en-US" | "zh-CN">(() => {
+    if (language.value === "system") {
+      return getBrowserLocale();
+    }
+    return language.value;
+  });
+
   /** Gets the current terminal color scheme. */
   function getTerminalColors(): TerminalTheme {
     return BUILTIN_THEMES[terminalTheme.value] ?? BUILTIN_THEMES["termex-dark"];
@@ -197,6 +230,8 @@ export const useSettingsStore = defineStore("settings", () => {
   return {
     theme,
     language,
+    effectiveTheme,
+    effectiveLanguage,
     fontFamily,
     fontSize,
     cursorStyle,

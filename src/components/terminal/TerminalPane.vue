@@ -46,7 +46,7 @@ defineExpose({ fit, dispose });
 </script>
 
 <template>
-  <div class="w-full h-full relative overflow-hidden" style="background: #0d1117">
+  <div class="w-full h-full relative overflow-hidden" style="background: var(--tm-terminal-bg)">
     <!-- Terminal container (hidden during connecting) -->
     <div
       ref="containerRef"

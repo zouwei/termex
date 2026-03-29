@@ -57,15 +57,15 @@ async function handleImport() {
 
 <template>
   <div class="space-y-5">
-    <h3 class="text-sm font-medium text-gray-200">{{ t("settings.backup") }}</h3>
+    <h3 class="text-sm font-medium" style="color: var(--tm-text-primary)">{{ t("settings.backup") }}</h3>
 
     <div class="space-y-3">
       <!-- Export -->
       <div class="flex items-start gap-3 p-3 rounded" style="border: 1px solid var(--tm-border)">
         <el-icon :size="20" class="text-primary-400 mt-0.5 shrink-0"><Download /></el-icon>
         <div class="flex-1">
-          <div class="text-xs text-gray-200 font-medium">{{ t("backup.export") }}</div>
-          <div class="text-[10px] text-gray-500 mt-0.5">{{ t("backup.exportDesc") }}</div>
+          <div class="text-xs font-medium" style="color: var(--tm-text-primary)">{{ t("backup.export") }}</div>
+          <div class="text-[10px] mt-0.5" style="color: var(--tm-text-muted)">{{ t("backup.exportDesc") }}</div>
           <el-button class="mt-2" size="small" :loading="exporting" @click="handleExport">
             {{ t("backup.exportBtn") }}
           </el-button>
@@ -76,8 +76,8 @@ async function handleImport() {
       <div class="flex items-start gap-3 p-3 rounded" style="border: 1px solid var(--tm-border)">
         <el-icon :size="20" class="text-green-400 mt-0.5 shrink-0"><Upload /></el-icon>
         <div class="flex-1">
-          <div class="text-xs text-gray-200 font-medium">{{ t("backup.import") }}</div>
-          <div class="text-[10px] text-gray-500 mt-0.5">{{ t("backup.importDesc") }}</div>
+          <div class="text-xs font-medium" style="color: var(--tm-text-primary)">{{ t("backup.import") }}</div>
+          <div class="text-[10px] mt-0.5" style="color: var(--tm-text-muted)">{{ t("backup.importDesc") }}</div>
           <el-button class="mt-2" size="small" :loading="importing" @click="handleImport">
             {{ t("backup.importBtn") }}
           </el-button>

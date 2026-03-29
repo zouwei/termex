@@ -20,7 +20,7 @@ const shortcuts = [
 
 <template>
   <div class="space-y-4">
-    <h3 class="text-sm font-medium text-gray-200">{{ t("settings.keybindings") }}</h3>
+    <h3 class="text-sm font-medium" style="color: var(--tm-text-primary)">{{ t("settings.keybindings") }}</h3>
 
     <div class="space-y-1">
       <div
@@ -28,7 +28,7 @@ const shortcuts = [
         :key="s.keys"
         class="flex items-center justify-between py-1.5 px-2 rounded hover:bg-white/5"
       >
-        <span class="text-xs text-gray-300">{{ t(s.action) }}</span>
+        <span class="text-xs" style="color: var(--tm-text-secondary)">{{ t(s.action) }}</span>
         <kbd class="text-[11px] rounded px-1.5 py-0.5 font-mono"
              style="color: var(--tm-text-secondary); background: var(--tm-bg-base); border: 1px solid var(--tm-border)"
         >

@@ -3,37 +3,119 @@
 @tailwind utilities;
 
 @layer base {
+  /* ────────────────────────────────────────────────────────────────
+     GLOBAL COLOR SYSTEM
+
+     All colors are defined in CSS variables for both Dark and Light themes.
+     This ensures consistency across all UI components, including xterm.js,
+     AI panel, settings panels, and any future components.
+
+     Variable naming convention:
+     - --tm-bg-*: Background colors (base, surface, elevated, hover)
+     - --tm-text-*: Text colors (primary, secondary, muted)
+     - --tm-border: Border colors
+     - --tm-input-*: Input fields (bg, border)
+     - --tm-terminal-*: Terminal-specific colors (bg, fg, ANSI colors)
+     - --tm-ai-*: AI panel colors
+     ──────────────────────────────────────────────────────────────── */
+
   /* ── Dark theme (default) ── */
   :root,
   .dark {
+    /* Background colors */
     --tm-bg-base: #111827;
     --tm-bg-surface: #030712;
     --tm-bg-elevated: #1a1a2e;
     --tm-bg-hover: rgba(255,255,255,0.06);
-    --tm-border: rgba(255,255,255,0.05);
+
+    /* Text colors */
     --tm-text-primary: #e5e7eb;
     --tm-text-secondary: #9ca3af;
     --tm-text-muted: #6b7280;
+
+    /* Borders */
+    --tm-border: rgba(255,255,255,0.05);
+
+    /* Component-specific */
     --tm-sidebar-bg: #030712;
     --tm-statusbar-bg: #030712;
     --tm-input-bg: #1f2937;
     --tm-input-border: #374151;
+
+    /* Terminal colors */
+    --tm-terminal-bg: #0d1117;
+    --tm-terminal-fg: #e6edf3;
+    --tm-terminal-cursor: #e6edf3;
+    --tm-terminal-selection: #264f78;
+    --tm-terminal-black: #484f58;
+    --tm-terminal-red: #ff7b72;
+    --tm-terminal-green: #3fb950;
+    --tm-terminal-yellow: #d29922;
+    --tm-terminal-blue: #58a6ff;
+    --tm-terminal-magenta: #bc8cff;
+    --tm-terminal-cyan: #39c5cf;
+    --tm-terminal-white: #b1bac4;
+    --tm-terminal-bright-black: #6e7681;
+    --tm-terminal-bright-red: #ffa198;
+    --tm-terminal-bright-green: #56d364;
+    --tm-terminal-bright-yellow: #e3b341;
+    --tm-terminal-bright-blue: #79c0ff;
+    --tm-terminal-bright-magenta: #d2a8ff;
+    --tm-terminal-bright-cyan: #56d4dd;
+    --tm-terminal-bright-white: #f0f6fc;
+
+    /* AI panel colors */
+    --tm-ai-msg-user-bg: rgba(79, 70, 229, 0.2); /* indigo-900/30 */
+    --tm-ai-msg-assistant-bg: rgba(255,255,255,0.06); /* tm-bg-hover */
   }
 
   /* ── Light theme ── */
   .light {
+    /* Background colors */
     --tm-bg-base: #f9fafb;
     --tm-bg-surface: #ffffff;
     --tm-bg-elevated: #ffffff;
     --tm-bg-hover: rgba(0,0,0,0.06);
-    --tm-border: rgba(0,0,0,0.08);
+
+    /* Text colors */
     --tm-text-primary: #111827;
     --tm-text-secondary: #4b5563;
     --tm-text-muted: #9ca3af;
+
+    /* Borders */
+    --tm-border: rgba(0,0,0,0.08);
+
+    /* Component-specific */
     --tm-sidebar-bg: #f3f4f6;
     --tm-statusbar-bg: #f3f4f6;
     --tm-input-bg: #ffffff;
     --tm-input-border: #d1d5db;
+
+    /* Terminal colors */
+    --tm-terminal-bg: #f5f5f5;
+    --tm-terminal-fg: #1f2937;
+    --tm-terminal-cursor: #1f2937;
+    --tm-terminal-selection: #bfdbfe;
+    --tm-terminal-black: #374151;
+    --tm-terminal-red: #dc2626;
+    --tm-terminal-green: #16a34a;
+    --tm-terminal-yellow: #ca8a04;
+    --tm-terminal-blue: #2563eb;
+    --tm-terminal-magenta: #9333ea;
+    --tm-terminal-cyan: #0891b2;
+    --tm-terminal-white: #d1d5db;
+    --tm-terminal-bright-black: #6b7280;
+    --tm-terminal-bright-red: #ef4444;
+    --tm-terminal-bright-green: #22c55e;
+    --tm-terminal-bright-yellow: #eab308;
+    --tm-terminal-bright-blue: #3b82f6;
+    --tm-terminal-bright-magenta: #a855f7;
+    --tm-terminal-bright-cyan: #06b6d4;
+    --tm-terminal-bright-white: #f3f4f6;
+
+    /* AI panel colors */
+    --tm-ai-msg-user-bg: rgba(79, 70, 229, 0.15); /* indigo-900/15 for light theme */
+    --tm-ai-msg-assistant-bg: rgba(0,0,0,0.06); /* tm-bg-hover */
   }
 }
 
