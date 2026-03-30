@@ -103,11 +103,13 @@ const ctxItems = computed(() => {
     {
       label: t("sftp.copyPath"),
       action: "copyPath",
+      icon: "copyPath",
     },
     { label: "", action: "divider1", divided: true },
     {
       label: t("sftp.refresh"),
       action: "refresh",
+      icon: "refresh",
     },
   ];
 

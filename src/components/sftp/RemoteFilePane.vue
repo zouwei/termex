@@ -69,6 +69,7 @@ const ctxItems = computed(() => {
     items.push({
       label: t("sftp.download"),
       action: "download",
+      icon: "download",
     });
   }
 
@@ -77,6 +78,7 @@ const ctxItems = computed(() => {
     items.push({
       label: t("sftp.edit"),
       action: "edit",
+      icon: "edit",
     });
   }
 
@@ -88,15 +90,18 @@ const ctxItems = computed(() => {
   items.push({
     label: t("sftp.copy"),
     action: "copy",
+    icon: "copy",
   });
   items.push({
     label: t("sftp.cut"),
     action: "cut",
+    icon: "cut",
   });
   if (sftpStore.clipboard) {
     items.push({
       label: t("sftp.paste"),
       action: "paste",
+      icon: "paste",
     });
   }
 
@@ -106,11 +111,13 @@ const ctxItems = computed(() => {
   items.push({
     label: t("sftp.rename"),
     action: "rename",
+    icon: "edit",
   });
   items.push({
     label: t("sftp.delete"),
     action: "delete",
     danger: true,
+    icon: "delete",
   });
 
   // More submenu
@@ -118,40 +125,48 @@ const ctxItems = computed(() => {
     {
       label: t("sftp.copyPath"),
       action: "copyPath",
+      icon: "copyPath",
     },
     { label: "", action: "divider3", divided: true },
     {
       label: t("sftp.newFile"),
       action: "newFile",
+      icon: "newFile",
     },
     {
       label: t("sftp.mkdir"),
       action: "mkdir",
+      icon: "mkdir",
     },
     { label: "", action: "divider4", divided: true },
     {
       label: t("sftp.selectAll"),
       action: "selectAll",
+      icon: "selectAll",
     },
     {
       label: t("sftp.refresh"),
       action: "refresh",
+      icon: "refresh",
     },
     { label: "", action: "divider5", divided: true },
     // TODO: Enable chmod once russh-sftp provides setstat API
     // {
     //   label: t("sftp.chmod"),
     //   action: "chmod",
+    //   icon: "chmod",
     // },
     {
       label: t("sftp.fileInfo"),
       action: "fileInfo",
+      icon: "fileInfo",
     },
   ];
 
   items.push({
     label: t("sftp.more"),
     action: "more",
+    icon: "more",
     children: moreItems,
   });
 
