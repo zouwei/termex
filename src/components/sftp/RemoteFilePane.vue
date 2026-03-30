@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { useSftpStore } from "@/stores/sftpStore";
 import type { FileEntry } from "@/types/sftp";
@@ -14,9 +15,14 @@ import {
   RefreshRight,
   FolderAdd,
 } from "@element-plus/icons-vue";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 
 const { t } = useI18n();
 const sftpStore = useSftpStore();
+
+const isTauriDragOver = ref(false);
+const isHtmlDragOver = ref(false);
+let unlistenDragDrop: (() => void) | null = null;
 
 function handleDoubleClick(entry: FileEntry) {
   if (entry.isDir) {
@@ -80,7 +86,6 @@ async function handleMkdir() {
 }
 
 // Breadcrumbs
-import { computed } from "vue";
 const breadcrumbs = computed(() => {
   const parts = sftpStore.currentPath.split("/").filter(Boolean);
   const items = [{ name: "/", path: "/" }];
@@ -91,6 +96,96 @@ const breadcrumbs = computed(() => {
   }
   return items;
 });
+
+// Register Tauri drag-drop events
+onMounted(async () => {
+  try {
+    const webview = getCurrentWebview();
+    unlistenDragDrop = await webview.onDragDropEvent((event) => {
+      if (event.payload.type === "enter" || event.payload.type === "over") {
+        isTauriDragOver.value = true;
+      } else if (event.payload.type === "leave") {
+        isTauriDragOver.value = false;
+      } else if (event.payload.type === "drop") {
+        isTauriDragOver.value = false;
+        handleOsFileDrop(event.payload.paths);
+      }
+    });
+  } catch (err) {
+    console.error("Failed to register drag-drop listener:", err);
+  }
+});
+
+onUnmounted(() => {
+  if (unlistenDragDrop) {
+    unlistenDragDrop();
+  }
+});
+
+async function handleOsFileDrop(paths: string[]) {
+  if (!sftpStore.isConnected || paths.length === 0) return;
+
+  for (const localPath of paths) {
+    try {
+      // Extract filename from path
+      const remoteName = localPath.split(/[\\/]/).pop() || "file";
+      await sftpStore.upload(localPath, remoteName);
+      ElMessage.success(`${t("sftp.uploadStarted")}: ${remoteName}`);
+    } catch (err) {
+      ElMessage.error(`${t("sftp.uploadError")}: ${err}`);
+    }
+  }
+}
+
+function handleDragStart(entry: FileEntry, e: DragEvent) {
+  e.dataTransfer!.effectAllowed = "copy";
+  e.dataTransfer!.setData(
+    "text/x-termex-remote",
+    JSON.stringify({ name: entry.name })
+  );
+}
+
+function handleHtmlDragEnter(e: DragEvent) {
+  e.preventDefault();
+  e.stopPropagation();
+  const types = e.dataTransfer?.types || [];
+  if (types.includes("text/x-termex-local")) {
+    isHtmlDragOver.value = true;
+  }
+}
+
+function handleHtmlDragLeave(e: DragEvent) {
+  if (e.currentTarget === e.target) {
+    isHtmlDragOver.value = false;
+  }
+}
+
+function handleHtmlDragOver(e: DragEvent) {
+  e.preventDefault();
+  e.dataTransfer!.dropEffect = "copy";
+}
+
+async function handleHtmlDrop(e: DragEvent) {
+  e.preventDefault();
+  e.stopPropagation();
+  isHtmlDragOver.value = false;
+
+  const data = e.dataTransfer?.getData("text/x-termex-local");
+  if (!data) return;
+
+  try {
+    const { fullPath, name } = JSON.parse(data);
+    if (!sftpStore.isConnected) {
+      ElMessage.warning(t("sftp.notConnected"));
+      return;
+    }
+
+    await sftpStore.upload(fullPath, name);
+    ElMessage.success(`${t("sftp.uploadStarted")}: ${name}`);
+  } catch (err) {
+    ElMessage.error(`${t("sftp.uploadError")}: ${err}`);
+  }
+}
 </script>
 
 <template>
@@ -119,13 +214,39 @@ const breadcrumbs = computed(() => {
     </div>
 
     <!-- File list -->
-    <div class="flex-1 overflow-auto text-xs">
+    <div
+      class="flex-1 overflow-auto text-xs relative"
+      @dragenter="handleHtmlDragEnter"
+      @dragleave="handleHtmlDragLeave"
+      @dragover="handleHtmlDragOver"
+      @drop="handleHtmlDrop"
+    >
+      <!-- Drop overlay (Tauri OS files) -->
       <div
-        v-for="entry in sftpStore.sortedEntries"
-        :key="entry.name"
-        class="tm-tree-item flex items-center gap-1.5 px-2 py-1 group cursor-default"
-        @dblclick="handleDoubleClick(entry)"
+        v-if="isTauriDragOver"
+        class="absolute inset-0 bg-blue-500/20 border-2 border-dashed border-blue-500 pointer-events-none flex items-center justify-center z-10"
       >
+        <span class="text-blue-600 font-medium">{{ t("sftp.dropToUpload") }}</span>
+      </div>
+
+      <!-- Drop overlay (HTML5 drag from local pane) -->
+      <div
+        v-if="isHtmlDragOver"
+        class="absolute inset-0 bg-green-500/20 border-2 border-dashed border-green-500 pointer-events-none flex items-center justify-center z-10"
+      >
+        <span class="text-green-600 font-medium">{{ t("sftp.dropToUpload") }}</span>
+      </div>
+
+      <!-- File entries -->
+      <div>
+        <div
+          v-for="entry in sftpStore.sortedEntries"
+          :key="entry.name"
+          :draggable="true"
+          class="tm-tree-item flex items-center gap-1.5 px-2 py-1 group cursor-default"
+          @dblclick="handleDoubleClick(entry)"
+          @dragstart="handleDragStart(entry, $event)"
+        >
         <el-icon :size="12" class="shrink-0">
           <Link v-if="entry.isSymlink" />
           <Folder v-else-if="entry.isDir" class="text-yellow-500" />
@@ -146,6 +267,7 @@ const breadcrumbs = computed(() => {
           <button class="p-0.5 rounded text-red-400/60 hover:text-red-400 transition-colors" @click.stop="handleDelete(entry)">
             <el-icon :size="11"><Delete /></el-icon>
           </button>
+        </div>
         </div>
       </div>
 

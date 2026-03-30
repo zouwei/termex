@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, onMounted, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import { useSftpStore } from "@/stores/sftpStore";
 import { tauriInvoke } from "@/utils/tauri";
 import { Folder, Document, ArrowUp, RefreshRight } from "@element-plus/icons-vue";
+import { ElMessage } from "element-plus";
 
 const { t } = useI18n();
+const sftpStore = useSftpStore();
 
 interface LocalEntry {
   name: string;
@@ -15,6 +18,7 @@ interface LocalEntry {
 const currentPath = ref("");
 const entries = ref<LocalEntry[]>([]);
 const loading = ref(false);
+const isDragOver = ref(false);
 
 onMounted(async () => {
   try {
@@ -25,6 +29,11 @@ onMounted(async () => {
     currentPath.value = "/";
     await listDir("/");
   }
+});
+
+// Sync local current path to SFTP store for downloads
+watch(currentPath, (newPath) => {
+  sftpStore.localCurrentPath = newPath;
 });
 
 async function listDir(path: string) {
@@ -66,6 +75,64 @@ const breadcrumbs = computed(() => {
 function handleDblClick(entry: LocalEntry) {
   if (entry.isDir) enterDir(entry.name);
 }
+
+function handleDragStart(entry: LocalEntry, e: DragEvent) {
+  const fullPath = currentPath.value.endsWith("/")
+    ? `${currentPath.value}${entry.name}`
+    : `${currentPath.value}/${entry.name}`;
+  e.dataTransfer!.effectAllowed = "copy";
+  e.dataTransfer!.setData(
+    "text/x-termex-local",
+    JSON.stringify({ name: entry.name, fullPath })
+  );
+}
+
+function handleDragEnter(e: DragEvent) {
+  e.preventDefault();
+  e.stopPropagation();
+  const types = e.dataTransfer?.types || [];
+  if (types.includes("text/x-termex-remote")) {
+    isDragOver.value = true;
+  }
+}
+
+function handleDragLeave(e: DragEvent) {
+  if (e.currentTarget === e.target) {
+    isDragOver.value = false;
+  }
+}
+
+function handleDragOver(e: DragEvent) {
+  e.preventDefault();
+  e.dataTransfer!.dropEffect = "copy";
+}
+
+async function handleDrop(e: DragEvent) {
+  e.preventDefault();
+  e.stopPropagation();
+  isDragOver.value = false;
+
+  const data = e.dataTransfer?.getData("text/x-termex-remote");
+  if (!data) return;
+
+  try {
+    const { name } = JSON.parse(data);
+    if (!sftpStore.isConnected) {
+      ElMessage.warning(t("sftp.notConnected"));
+      return;
+    }
+
+    const localPath =
+      currentPath.value.endsWith("/") || currentPath.value === ""
+        ? `${currentPath.value}${name}`
+        : `${currentPath.value}/${name}`;
+
+    await sftpStore.download(name, localPath);
+    ElMessage.success(t("sftp.downloadStarted"));
+  } catch (err) {
+    ElMessage.error(`${t("sftp.downloadError")}: ${err}`);
+  }
+}
 </script>
 
 <template>
@@ -91,19 +158,39 @@ function handleDblClick(entry: LocalEntry) {
     </div>
 
     <!-- File list -->
-    <div class="flex-1 overflow-auto text-xs">
+    <div
+      class="flex-1 overflow-auto text-xs relative"
+      @dragenter="handleDragEnter"
+      @dragleave="handleDragLeave"
+      @dragover="handleDragOver"
+      @drop="handleDrop"
+    >
+      <!-- Drop overlay -->
       <div
-        v-for="entry in entries"
-        :key="entry.name"
-        class="tm-tree-item flex items-center gap-1.5 px-2 py-1 cursor-default"
-        @dblclick="handleDblClick(entry)"
+        v-if="isDragOver"
+        class="absolute inset-0 bg-blue-500/20 border-2 border-dashed border-blue-500 pointer-events-none flex items-center justify-center"
       >
-        <el-icon :size="12" class="shrink-0">
-          <Folder v-if="entry.isDir" class="text-yellow-500" />
-          <Document v-else style="color: var(--tm-text-muted)" />
-        </el-icon>
-        <span class="truncate">{{ entry.name }}</span>
+        <span class="text-blue-600 font-medium">{{ t("sftp.dropToDownload") }}</span>
       </div>
+
+      <!-- File entries -->
+      <div>
+        <div
+          v-for="entry in entries"
+          :key="entry.name"
+          :draggable="true"
+          class="tm-tree-item flex items-center gap-1.5 px-2 py-1 cursor-default"
+          @dblclick="handleDblClick(entry)"
+          @dragstart="handleDragStart(entry, $event)"
+        >
+          <el-icon :size="12" class="shrink-0">
+            <Folder v-if="entry.isDir" class="text-yellow-500" />
+            <Document v-else style="color: var(--tm-text-muted)" />
+          </el-icon>
+          <span class="truncate">{{ entry.name }}</span>
+        </div>
+      </div>
+
       <div v-if="!loading && entries.length === 0" class="text-center py-4" style="color: var(--tm-text-muted)">
         {{ t("sftp.empty") }}
       </div>

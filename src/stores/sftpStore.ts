@@ -19,6 +19,9 @@ export const useSftpStore = defineStore("sftp", () => {
   /** Current remote directory path. */
   const currentPath = ref("/");
 
+  /** Current local directory path (for tracking local file pane position). */
+  const localCurrentPath = ref("");
+
   /** File entries in the current directory. */
   const entries = ref<FileEntry[]>([]);
 
@@ -236,6 +239,7 @@ export const useSftpStore = defineStore("sftp", () => {
     panelVisible,
     sessionId,
     currentPath,
+    localCurrentPath,
     entries,
     loading,
     transfers,
