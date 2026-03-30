@@ -264,7 +264,7 @@ function handleDblClick() {
         style="color: var(--tm-text-muted)"
         :title="'Via: ' + bastionChainPreview"
       >
-        [>>>]
+        [⋙]
       </span>
       <span class="truncate">{{ server.name }}</span>
     </span>
