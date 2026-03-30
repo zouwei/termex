@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, computed } from "vue";
+import { ref, onMounted, onBeforeUnmount, computed, watch, nextTick } from "vue";
 import {
   Download,
   Edit,
@@ -37,6 +37,8 @@ const emit = defineEmits<{
 const menuRef = ref<HTMLDivElement | null>(null);
 const openSub = ref<string | null>(null);
 const menuHeight = ref(0);
+const subMenuRefs = ref<Record<string, HTMLDivElement | null>>({});
+const subMenuSizes = ref<Record<string, { width: number; height: number }>>({});
 
 // Map action names to icon components
 const iconMap: Record<string, any> = {
@@ -72,6 +74,37 @@ const menuStyle = computed(() => {
   };
 });
 
+// Calculate submenu position to ensure it stays within viewport
+function getSubMenuStyle(action: string, itemTop: number) {
+  const subSize = subMenuSizes.value[action];
+  if (!subSize) return {};
+
+  const bottomEdge = itemTop + subSize.height;
+
+  let top = "0";
+
+  // If submenu would go off bottom, adjust upward
+  if (bottomEdge > window.innerHeight - 10) {
+    const availableSpace = window.innerHeight - itemTop - 10;
+    if (availableSpace < subSize.height) {
+      // Adjust top to fit within viewport
+      const offset = subSize.height - availableSpace;
+      top = `calc(0px - ${offset}px)`;
+    }
+  }
+
+  return { top };
+}
+
+// Check if submenu should appear on the left side
+function shouldSubMenuGoLeft(action: string): boolean {
+  const subSize = subMenuSizes.value[action];
+  if (!subSize) return false;
+  const mainMenuWidth = 160;
+  const rightEdge = props.x + mainMenuWidth + subSize.width;
+  return rightEdge > window.innerWidth - 10;
+}
+
 function getIcon(action: string) {
   return iconMap[action];
 }
@@ -92,6 +125,24 @@ function onClickOutside(e: MouseEvent) {
     emit("close");
   }
 }
+
+// Watch for submenu opening to measure its size
+watch(
+  () => openSub.value,
+  async (newVal) => {
+    if (newVal) {
+      // Wait for DOM to update
+      await nextTick();
+      const subRef = subMenuRefs.value[newVal];
+      if (subRef) {
+        subMenuSizes.value[newVal] = {
+          width: subRef.offsetWidth,
+          height: subRef.offsetHeight,
+        };
+      }
+    }
+  }
+);
 
 onMounted(() => {
   document.addEventListener("mousedown", onClickOutside, true);
@@ -135,11 +186,22 @@ onBeforeUnmount(() => {
             </div>
             <span class="ml-2 text-gray-500">&#x25B8;</span>
           </button>
-          <!-- Submenu -->
+          <!-- Submenu with smart positioning -->
           <div
             v-if="openSub === item.action"
-            class="absolute left-full top-0 ml-0.5 min-w-[140px] py-1 rounded-md shadow-xl"
-            style="background: var(--tm-bg-elevated); border: 1px solid var(--tm-border)"
+            :ref="(el) => { if (el) subMenuRefs[item.action] = el as HTMLDivElement; }"
+            class="absolute py-1 rounded-md shadow-xl"
+            :class="[
+              shouldSubMenuGoLeft(item.action)
+                ? 'right-full mr-0.5'
+                : 'left-full ml-0.5'
+            ]"
+            :style="{
+              ...getSubMenuStyle(item.action, 0),
+              background: 'var(--tm-bg-elevated)',
+              border: '1px solid var(--tm-border)',
+              minWidth: '140px'
+            }"
           >
             <button
               v-for="child in item.children"
