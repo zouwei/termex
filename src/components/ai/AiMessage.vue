@@ -64,7 +64,7 @@ async function handleLaunch() {
 
   launching.value = true;
   try {
-    await tauriInvoke("local_ai_start_engine", { model_path: model.path });
+    await tauriInvoke("local_ai_start_engine", { modelPath: model.path });
     ElMessage.success(`Started model: ${model.id}`);
   } catch (err) {
     ElMessage.error(`Failed to start engine: ${err}`);
