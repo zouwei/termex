@@ -117,7 +117,7 @@ export const useSftpStore = defineStore("sftp", () => {
   /** Navigates into a directory entry. */
   async function enterDir(name: string): Promise<void> {
     const basePath = currentPath.value === "/" ? "" : currentPath.value;
-    const newPath = `${basePath}/${name}`;
+    const newPath = normalizePath(`${basePath}/${name}`);
     // Update path immediately for instant UI feedback
     currentPath.value = newPath;
     await listDir(newPath);
@@ -136,7 +136,7 @@ export const useSftpStore = defineStore("sftp", () => {
   async function mkdir(name: string): Promise<void> {
     if (!sessionId.value) return;
     const basePath = currentPath.value === "/" ? "" : currentPath.value;
-    const path = `${basePath}/${name}`;
+    const path = normalizePath(`${basePath}/${name}`);
     await tauriInvoke("sftp_mkdir", { sessionId: sessionId.value, path });
     await listDir(currentPath.value);
   }
@@ -145,7 +145,7 @@ export const useSftpStore = defineStore("sftp", () => {
   async function deleteEntry(entry: FileEntry): Promise<void> {
     if (!sessionId.value) return;
     const basePath = currentPath.value === "/" ? "" : currentPath.value;
-    const path = `${basePath}/${entry.name}`;
+    const path = normalizePath(`${basePath}/${entry.name}`);
     await tauriInvoke("sftp_delete", {
       sessionId: sessionId.value,
       path,
@@ -160,8 +160,8 @@ export const useSftpStore = defineStore("sftp", () => {
     const base = currentPath.value === "/" ? "" : currentPath.value;
     await tauriInvoke("sftp_rename", {
       sessionId: sessionId.value,
-      oldPath: `${base}/${oldName}`,
-      newPath: `${base}/${newName}`,
+      oldPath: normalizePath(`${base}/${oldName}`),
+      newPath: normalizePath(`${base}/${newName}`),
     });
     await listDir(currentPath.value);
   }
@@ -173,7 +173,7 @@ export const useSftpStore = defineStore("sftp", () => {
   ): Promise<void> {
     if (!sessionId.value) return;
     const basePath = currentPath.value === "/" ? "" : currentPath.value;
-    const remotePath = `${basePath}/${remoteName}`;
+    const remotePath = normalizePath(`${basePath}/${remoteName}`);
 
     const transferId = await tauriInvoke<string>("sftp_download", {
       sessionId: sessionId.value,
@@ -201,7 +201,7 @@ export const useSftpStore = defineStore("sftp", () => {
   ): Promise<void> {
     if (!sessionId.value) return;
     const basePath = currentPath.value === "/" ? "" : currentPath.value;
-    const remotePath = `${basePath}/${remoteName}`;
+    const remotePath = normalizePath(`${basePath}/${remoteName}`);
 
     const transferId = await tauriInvoke<string>("sftp_upload", {
       sessionId: sessionId.value,
@@ -230,14 +230,14 @@ export const useSftpStore = defineStore("sftp", () => {
   /** Copies a file entry to clipboard. */
   function copyToClipboard(entry: FileEntry): void {
     const basePath = currentPath.value === "/" ? "" : currentPath.value;
-    const sourcePath = `${basePath}/${entry.name}`;
+    const sourcePath = normalizePath(`${basePath}/${entry.name}`);
     clipboard.value = { op: 'copy', sourcePath, name: entry.name };
   }
 
   /** Cuts a file entry to clipboard. */
   function cutToClipboard(entry: FileEntry): void {
     const basePath = currentPath.value === "/" ? "" : currentPath.value;
-    const sourcePath = `${basePath}/${entry.name}`;
+    const sourcePath = normalizePath(`${basePath}/${entry.name}`);
     clipboard.value = { op: 'cut', sourcePath, name: entry.name };
   }
 
@@ -246,7 +246,7 @@ export const useSftpStore = defineStore("sftp", () => {
     if (!sessionId.value || !clipboard.value) return;
 
     const basePath = currentPath.value === "/" ? "" : currentPath.value;
-    const destPath = `${basePath}/${clipboard.value.name}`;
+    const destPath = normalizePath(`${basePath}/${clipboard.value.name}`);
 
     if (clipboard.value.op === 'cut') {
       // Move via rename
@@ -276,7 +276,7 @@ export const useSftpStore = defineStore("sftp", () => {
   async function createFile(name: string): Promise<void> {
     if (!sessionId.value) return;
     const basePath = currentPath.value === "/" ? "" : currentPath.value;
-    const path = `${basePath}/${name}`;
+    const path = normalizePath(`${basePath}/${name}`);
     await tauriInvoke("sftp_write_file", {
       sessionId: sessionId.value,
       path,
