@@ -274,13 +274,8 @@ git push origin main --tags     # triggers GitHub Actions build
 - [x] v0.8.0 -- Plugin System + Extensibility
 - [x] v0.9.0 -- Stable Release
 - [x] v0.10.0 -- OS Keychain Security (credential protection)
-- [x] **v0.11.0 -- Local AI Models (llama-server integration, 12 models, offline-first)** ✅ **(COMPLETE)**
+- [x] v0.11.0 -- Local AI Models (llama-server integration, 12 models, offline-first)
 
-### Planned (v0.11.1+)
-
-- [ ] v0.11.1 -- Performance Optimizations (async SHA256, parallel downloads, throttled progress)
-- [ ] v0.12.0 -- Enhanced Local AI (Ollama pull, multi-instance, HuggingFace mirror support)
-- [ ] v1.0.0 -- Production Ready (full testing, release builds, app stores)
 
 > See [docs/iterations/](docs/iterations/) for detailed plans of each version.
 
