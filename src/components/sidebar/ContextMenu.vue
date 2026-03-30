@@ -75,45 +75,40 @@ const menuStyle = computed(() => {
   };
 });
 
-// Calculate submenu position to ensure it stays within viewport
+// Calculate submenu position to float within main menu bounds
 function getSubMenuStyle(action: string) {
   const subSize = subMenuSizes.value[action];
   const parentItem = parentItemRefs.value[action];
 
-  if (!subSize || !parentItem) return {};
+  if (!subSize || !parentItem || !menuRef.value) return {};
 
-  // Get parent item's position relative to viewport
+  // Get main menu and parent item positions
+  const mainMenuRect = menuRef.value.getBoundingClientRect();
   const parentRect = parentItem.getBoundingClientRect();
-  const parentTop = parentRect.top;
-  const parentHeight = parentRect.height;
 
-  // Calculate submenu bottom position if placed normally (below parent)
-  const subMenuBottomIfNormal = parentTop + parentHeight + subSize.height;
+  // Main menu viewport coordinates
+  const mainMenuViewportTop = mainMenuRect.top;
+  const mainMenuInnerHeight = mainMenuRect.height;
 
-  let top = "0";
+  // Parent menu item viewport coordinates
+  const parentViewportTop = parentRect.top;
+  const parentViewportHeight = parentRect.height;
 
-  // If submenu would extend beyond viewport bottom, pop up
-  if (subMenuBottomIfNormal > window.innerHeight - 10) {
-    const spaceBelow = window.innerHeight - parentTop - parentHeight - 10;
-    const spaceAbove = parentTop - 10;
+  // Parent item position relative to main menu
+  const parentRelativeTop = parentViewportTop - mainMenuViewportTop;
+  const parentRelativeCenter = parentRelativeTop + parentViewportHeight / 2;
 
-    // Prefer popping up if there's enough space
-    if (spaceAbove >= subSize.height) {
-      top = `calc(0px - ${subSize.height}px)`;
-    } else if (spaceBelow >= subSize.height) {
-      // Fallback to below if more space there
-      top = "0";
-    } else {
-      // Squeeze into the space with more room
-      if (spaceAbove > spaceBelow) {
-        top = `calc(0px - ${spaceAbove}px)`;
-      } else {
-        top = "0";
-      }
-    }
-  }
+  // Ideal positioning: submenu centered on parent item
+  let top = parentRelativeCenter - subSize.height / 2;
 
-  return { top };
+  // Ensure submenu stays within main menu bounds (5px safety margin)
+  const minTop = 5;
+  const maxTop = mainMenuInnerHeight - subSize.height - 5;
+
+  // Clamp top to valid range
+  top = Math.max(minTop, Math.min(top, maxTop));
+
+  return { top: top + "px" };
 }
 
 // Check if submenu should appear on the left side
