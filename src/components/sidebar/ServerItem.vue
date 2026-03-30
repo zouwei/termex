@@ -256,7 +256,7 @@ function handleDblClick() {
       @click.stop
       @dblclick.stop
     />
-    <span v-else class="flex-1 min-w-0 flex items-center gap-2">
+    <span v-else class="flex-1 min-w-0 flex items-center gap-0.5">
       <!-- Tunnel indicator for servers with proxy (has bastion) -->
       <span
         v-if="server.proxyId"
