@@ -82,44 +82,43 @@ function getSubMenuStyle(action: string) {
 
   if (!subSize || !parentItem || !menuRef.value) return {};
 
-  // Get main menu and parent item positions
+  // Get positions
   const mainMenuRect = menuRef.value.getBoundingClientRect();
   const parentRect = parentItem.getBoundingClientRect();
 
-  // Main menu viewport coordinates
-  const mainMenuViewportTop = mainMenuRect.top;
-  const mainMenuInnerHeight = mainMenuRect.height;
+  // Main menu height
+  const mainMenuHeight = mainMenuRect.height;
 
-  // Parent menu item viewport coordinates
-  const parentViewportTop = parentRect.top;
-  const parentViewportHeight = parentRect.height;
+  // Parent menu item position relative to main menu
+  const parentRelativeTop = parentRect.top - mainMenuRect.top;
+  const parentHeight = parentRect.height;
 
-  // Parent item position relative to main menu
-  const parentRelativeTop = parentViewportTop - mainMenuViewportTop;
-  const parentRelativeCenter = parentRelativeTop + parentViewportHeight / 2;
+  // Ideal: submenu centered on parent item (positioned relative to parent)
+  let topInParentCoords = parentHeight / 2 - subSize.height / 2;
 
-  // Ideal positioning: submenu centered on parent item
-  let top = parentRelativeCenter - subSize.height / 2;
+  // Clamp within main menu bounds (relative to main menu, so add parent position)
+  const minTopInMenuCoords = 5;
+  const maxTopInMenuCoords = mainMenuHeight - subSize.height - 5;
+  const topInMenuCoords = parentRelativeTop + topInParentCoords;
 
-  // Ensure submenu stays within main menu bounds (5px safety margin)
-  const minTop = 5;
-  const maxTop = mainMenuInnerHeight - subSize.height - 5;
+  let clampedTopInMenuCoords = Math.max(minTopInMenuCoords, Math.min(topInMenuCoords, maxTopInMenuCoords));
 
-  // Clamp top to valid range
-  top = Math.max(minTop, Math.min(top, maxTop));
+  // Convert back to parent coordinates
+  let finalTop = clampedTopInMenuCoords - parentRelativeTop;
 
-  // Also check viewport bottom bounds - ensure submenu doesn't extend beyond viewport
-  const absoluteTop = mainMenuViewportTop + top;
+  // Also check viewport bottom bounds
+  const absoluteTop = mainMenuRect.top + clampedTopInMenuCoords;
   const absoluteBottom = absoluteTop + subSize.height;
   const viewportBuffer = 10;
 
   if (absoluteBottom > window.innerHeight - viewportBuffer) {
-    // Submenu extends beyond viewport, shift up to fit
+    // Shift up to fit in viewport
     const overflow = absoluteBottom - (window.innerHeight - viewportBuffer);
-    top = Math.max(minTop, top - overflow);
+    const adjustedTopInMenuCoords = Math.max(minTopInMenuCoords, clampedTopInMenuCoords - overflow);
+    finalTop = adjustedTopInMenuCoords - parentRelativeTop;
   }
 
-  return { top: top + "px" };
+  return { top: finalTop + "px" };
 }
 
 // Check if submenu should appear on the left side
