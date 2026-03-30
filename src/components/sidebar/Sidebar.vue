@@ -31,7 +31,7 @@ function onSearchBlur() {
 </script>
 
 <template>
-  <aside class="w-60 flex flex-col shrink-0 select-none" style="background: var(--tm-sidebar-bg); border-right: 1px solid var(--tm-border)">
+  <aside class="flex flex-col shrink-0 select-none" style="width: 100%; background: var(--tm-sidebar-bg); border-right: 1px solid var(--tm-border)">
     <!-- Header -->
     <div class="h-9 flex items-center px-2 gap-1 shrink-0" style="border-bottom: 1px solid var(--tm-border)">
       <template v-if="!searchActive">

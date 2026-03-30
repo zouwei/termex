@@ -28,6 +28,64 @@ const sftpStore = useSftpStore();
 const settingsStore = useSettingsStore();
 
 const sidebarVisible = ref(true);
+const sidebarWidth = ref(240);
+const sftpHeight = ref(256);
+const resizing = ref<'sidebar' | 'sftp' | null>(null);
+const resizeStart = ref({ x: 0, y: 0, val: 0 });
+
+// Load saved dimensions from localStorage
+onMounted(() => {
+  const saved = localStorage.getItem("ui-dimensions");
+  if (saved) {
+    const dims = JSON.parse(saved);
+    if (dims.sidebarWidth) sidebarWidth.value = dims.sidebarWidth;
+    if (dims.sftpHeight) sftpHeight.value = dims.sftpHeight;
+  }
+});
+
+// Save dimensions to localStorage on change (debounced via resize end)
+const saveTimeout = ref<ReturnType<typeof setTimeout> | null>(null);
+watch([sidebarWidth, sftpHeight], ([sw, sh]) => {
+  if (saveTimeout.value) clearTimeout(saveTimeout.value);
+  saveTimeout.value = setTimeout(() => {
+    localStorage.setItem("ui-dimensions", JSON.stringify({ sidebarWidth: sw, sftpHeight: sh }));
+  }, 300);
+});
+
+function clamp(val: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, val));
+}
+
+function startResize(type: 'sidebar' | 'sftp', e: MouseEvent) {
+  e.preventDefault();
+  resizing.value = type;
+  resizeStart.value = {
+    x: e.clientX,
+    y: e.clientY,
+    val: type === 'sidebar' ? sidebarWidth.value : sftpHeight.value,
+  };
+
+  function onMove(e: MouseEvent) {
+    if (!resizing.value || !resizeStart.value) return;
+
+    if (resizing.value === 'sidebar') {
+      const delta = e.clientX - resizeStart.value.x;
+      sidebarWidth.value = clamp(resizeStart.value.val + delta, 160, 480);
+    } else {
+      const delta = e.clientY - resizeStart.value.y;
+      sftpHeight.value = clamp(resizeStart.value.val - delta, 120, 600);
+    }
+  }
+
+  function onUp() {
+    resizing.value = null;
+    window.removeEventListener('mousemove', onMove);
+    window.removeEventListener('mouseup', onUp);
+  }
+
+  window.addEventListener('mousemove', onMove);
+  window.addEventListener('mouseup', onUp);
+}
 const connectModalVisible = ref(false);
 const settingsModalVisible = ref(false);
 const editServerId = ref<string | null>(null);
@@ -182,9 +240,18 @@ onBeforeUnmount(() => {
       <!-- Sidebar -->
       <Sidebar
         v-show="sidebarVisible"
+        :style="sidebarVisible ? { width: `${sidebarWidth}px` } : {}"
         @new-host="openNewConnection"
         @settings="settingsModalVisible = true"
         @edit-server="openEditServer"
+      />
+
+      <!-- Sidebar resize handle -->
+      <div
+        v-if="sidebarVisible"
+        class="w-1 bg-gray-700 hover:bg-blue-500 cursor-col-resize transition-colors shrink-0"
+        style="background-color: var(--tm-border)"
+        @mousedown="startResize('sidebar', $event)"
       />
 
       <!-- Content column -->
@@ -225,10 +292,18 @@ onBeforeUnmount(() => {
           />
         </div>
 
+        <!-- SFTP resize handle -->
+        <div
+          v-if="sftpStore.panelVisible"
+          class="h-1 bg-gray-700 hover:bg-blue-500 cursor-row-resize transition-colors shrink-0"
+          style="background-color: var(--tm-border)"
+          @mousedown="startResize('sftp', $event)"
+        />
+
         <!-- SFTP Panel -->
         <SftpPanel
           v-if="sftpStore.panelVisible"
-          class="h-64"
+          :style="{ height: `${sftpHeight}px` }"
         />
       </div>
     </div>
