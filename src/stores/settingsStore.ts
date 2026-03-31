@@ -2,6 +2,9 @@ import { defineStore } from "pinia";
 import { ref, watch, computed } from "vue";
 import { tauriInvoke } from "@/utils/tauri";
 import type { ThemeMode, LanguageMode } from "@/types/settings";
+import type { CustomFont } from "@/types/fonts";
+import { DEFAULT_FONT } from "@/types/fonts";
+import { loadCustomFont, unloadCustomFont, loadAllCustomFonts } from "@/utils/fontLoader";
 
 /** Terminal color scheme preset. */
 export interface TerminalTheme {
@@ -120,7 +123,8 @@ export const useSettingsStore = defineStore("settings", () => {
 
   const theme = ref<ThemeMode>("system");
   const language = ref<LanguageMode>("system");
-  const fontFamily = ref("'JetBrains Mono', 'Fira Code', monospace");
+  const fontFamily = ref(DEFAULT_FONT);
+  const customFonts = ref<CustomFont[]>([]);
   const fontSize = ref(14);
   const cursorStyle = ref<"block" | "underline" | "bar">("block");
   const cursorBlink = ref(true);
@@ -143,9 +147,12 @@ export const useSettingsStore = defineStore("settings", () => {
         case "language":
           language.value = value as LanguageMode;
           break;
-        case "fontFamily":
-          fontFamily.value = value;
+        case "fontFamily": {
+          // Migrate old CSS stack format ("'JetBrains Mono', 'Fira Code', monospace") to font name
+          const match = value.match(/^'?([^',]+)'?/);
+          fontFamily.value = match ? match[1].trim() : DEFAULT_FONT;
           break;
+        }
         case "fontSize":
           fontSize.value = Number(value) || 14;
           break;
@@ -214,6 +221,41 @@ export const useSettingsStore = defineStore("settings", () => {
     }));
   }
 
+  /** Loads custom fonts from ~/.termex/fonts/ and registers them via FontFace API. */
+  async function loadCustomFonts(): Promise<void> {
+    const fonts = await tauriInvoke<CustomFont[]>("fonts_list_custom");
+    customFonts.value = fonts;
+    await loadAllCustomFonts(fonts);
+  }
+
+  /** Uploads a font file and registers it. */
+  async function uploadFont(
+    fileName: string,
+    data: number[],
+  ): Promise<CustomFont> {
+    const font = await tauriInvoke<CustomFont>("fonts_upload", {
+      fileName,
+      data,
+    });
+    await loadCustomFont(font);
+    customFonts.value.push(font);
+    return font;
+  }
+
+  /** Deletes a custom font and unloads it. */
+  async function deleteFont(fileName: string): Promise<void> {
+    const font = customFonts.value.find((f) => f.fileName === fileName);
+    if (!font) return;
+    await tauriInvoke("fonts_delete", { fileName });
+    unloadCustomFont(font.name);
+    customFonts.value = customFonts.value.filter(
+      (f) => f.fileName !== fileName,
+    );
+    if (fontFamily.value === font.name) {
+      fontFamily.value = DEFAULT_FONT;
+    }
+  }
+
   // Auto-persist when values change
   watch(theme, (v) => {
     set("theme", v);
@@ -241,6 +283,10 @@ export const useSettingsStore = defineStore("settings", () => {
     loadAll,
     set,
     applyTheme,
+    customFonts,
+    loadCustomFonts,
+    uploadFont,
+    deleteFont,
     getTerminalColors,
     getThemeList,
   };

@@ -5,6 +5,7 @@ import "element-plus/dist/index.css";
 import { i18n } from "./i18n";
 import App from "./App.vue";
 import "./assets/styles/tailwind.css";
+import "./assets/styles/fonts.css";
 
 // Set platform class before mount for CSS layout
 const platform = navigator.platform.toUpperCase();

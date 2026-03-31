@@ -294,6 +294,11 @@ pub fn run() {
             commands::local_fs::open_url,
             commands::local_fs::save_file_dialog,
             commands::local_fs::open_local_terminal,
+            // Fonts
+            commands::fonts::fonts_list_custom,
+            commands::fonts::fonts_upload,
+            commands::fonts::fonts_delete,
+            commands::fonts::fonts_read,
             // Update
             commands::update::get_platform_info,
             commands::update::download_update,

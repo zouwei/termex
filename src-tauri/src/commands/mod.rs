@@ -13,3 +13,4 @@ pub mod recording;
 pub mod local_fs;
 pub mod update;
 pub mod local_ai;
+pub mod fonts;

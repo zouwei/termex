@@ -146,6 +146,24 @@ pnpm tauri build
   - File info dialog showing size, permissions, UID/GID, modification time
   - Path copying to system clipboard for terminal use
 
+### Font Management (v0.14.0) ✅
+
+- **Built-in Open-Source Fonts** -- 6 bundled monospace fonts, ready out of the box
+  - JetBrains Mono (OFL 1.1, default), Fira Code (OFL 1.1), Cascadia Code (OFL 1.1)
+  - Source Code Pro (OFL 1.1), Hack (MIT), IBM Plex Mono (OFL 1.1)
+  - Packed as .woff2 with @font-face declarations
+- **Smart Font Selector** -- Grouped dropdown replaces plain text input
+  - Built-in Fonts group with font-preview rendering
+  - Custom Fonts group with per-font delete button
+  - Filterable search across all fonts
+- **Custom Font Upload** -- Bring your own fonts (.ttf, .otf, .woff, .woff2)
+  - Browse and upload to `~/.termex/fonts/`
+  - Dynamic registration via FontFace API
+  - Persistent across app restarts
+- **Live Terminal Updates** -- Font and size changes apply instantly
+  - No terminal restart required
+  - All open sessions update simultaneously
+
 ## Tech Stack
 
 ```text
@@ -312,9 +330,13 @@ git push origin main --tags     # triggers GitHub Actions build
 - [x] v0.11.0 -- Local AI Models (llama-server integration, 12 models, offline-first)
 - [x] v0.12.0 -- SSH ProxyJump & Bastion (multi-level jump servers, connection pooling, SSH Agent)
 - [x] v0.13.0 -- SFTP Enhancement (context menu, clipboard ops, chmod, file info)
+- [x] v0.14.0 -- Font Management (6 built-in fonts, custom upload, live terminal updates)
 
 > See [docs/iterations/](docs/iterations/) for detailed plans of each version.
-
+>
+> - [v0.12.0 — SSH ProxyJump Bastion Host](docs/iterations/v0.12.0-proxyjump-bastion.md)
+> - [v0.13.0 — SFTP Panel Enhancement](docs/iterations/v0.13.0-sftp-enhancement-complete.md)
+> - [v0.14.0 — Font Management](docs/iterations/v0.14.0-font-management.md)
 
 ## Contributing
 

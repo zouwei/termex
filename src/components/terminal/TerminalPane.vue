@@ -17,7 +17,7 @@ const isPlaceholder = computed(() => props.sessionId.startsWith("connecting-"));
 const session = computed(() => sessionStore.sessions.get(props.sessionId));
 const isActive = computed(() => sessionStore.activeSessionId === props.sessionId);
 
-const { mount, fit, setTheme, dispose } = useTerminal(sessionIdRef);
+const { mount, fit, setTheme, setFont, dispose } = useTerminal(sessionIdRef);
 
 onMounted(() => {
   if (containerRef.value && !isPlaceholder.value) {
@@ -50,6 +50,16 @@ watch(() => settingsStore.theme, () => {
     setTheme();
   }
 });
+
+// Update terminal font when font settings change
+watch(
+  () => [settingsStore.fontFamily, settingsStore.fontSize],
+  ([family, size]) => {
+    if (!isPlaceholder.value) {
+      setFont(family as string, size as number);
+    }
+  },
+);
 
 defineExpose({ fit, dispose });
 </script>

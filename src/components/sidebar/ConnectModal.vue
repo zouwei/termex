@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive, watch, computed } from "vue";
 import { useI18n } from "vue-i18n";
+import { Close } from "@element-plus/icons-vue";
 import { useServerStore } from "@/stores/serverStore";
 import { useSessionStore } from "@/stores/sessionStore";
 import { tauriInvoke } from "@/utils/tauri";
@@ -68,21 +69,31 @@ const availableBastions = computed(() => {
   });
 });
 
-// Compute connection chain preview
-const connectionChainPreview = computed(() => {
-  if (!form.proxyId) return null;
+// Compute connection chain with full details for each hop
+const connectionChain = computed(() => {
+  if (!form.proxyId) return [];
 
-  const chain: string[] = [];
+  const chain: Array<{ id: string; name: string; host: string; port: number }> = [];
   let current_id: string | null | undefined = form.proxyId;
+  const visited = new Set<string>();
   while (current_id) {
+    if (visited.has(current_id)) break;
+    visited.add(current_id);
     const server = serverStore.servers.find(s => s.id === current_id);
     if (!server) break;
-    chain.push(server.name);
+    chain.push({ id: server.id, name: server.name, host: server.host, port: server.port });
     current_id = server.proxyId;
   }
-  chain.push(form.host || "target");
   return chain;
 });
+
+function removeChainHop(hopId: string) {
+  if (form.proxyId === hopId) {
+    // Removing the immediate bastion — check if it has its own proxy to reconnect the chain
+    const bastion = serverStore.servers.find(s => s.id === hopId);
+    form.proxyId = (bastion?.proxyId || null) as string | null;
+  }
+}
 
 // Reset form when dialog opens
 watch(
@@ -347,18 +358,46 @@ async function handleTest() {
             </el-select>
           </el-form-item>
 
-          <!-- Connection chain preview -->
+          <!-- Connection chain -->
           <div
             class="px-3 py-2 rounded text-xs"
             style="background: var(--tm-bg-hover)"
           >
-            <div v-if="connectionChainPreview" class="space-y-1">
-              <div class="text-secondary font-semibold mb-1">{{ t('connection.connectionPath') }}:</div>
-              <div class="text-primary">
-                {{ connectionChainPreview.join(' ➜ ') }}
+            <div v-if="connectionChain.length > 0">
+              <div class="font-semibold mb-2" style="color: var(--tm-text-secondary)">{{ t('connection.connectionPath') }}:</div>
+              <div class="space-y-1.5">
+                <div
+                  v-for="(hop, idx) in connectionChain"
+                  :key="hop.id"
+                  class="flex items-center gap-2 px-2 py-1.5 rounded group"
+                  style="background: var(--tm-bg-elevated)"
+                >
+                  <span class="text-[10px] font-mono shrink-0" style="color: var(--tm-text-muted)">{{ idx + 1 }}</span>
+                  <span class="text-[10px] shrink-0" style="color: var(--tm-text-muted)">➜</span>
+                  <span class="truncate" style="color: var(--tm-text-primary)">{{ hop.name }}</span>
+                  <span class="text-[10px] truncate" style="color: var(--tm-text-muted)">({{ hop.host }}:{{ hop.port }})</span>
+                  <button
+                    v-if="hop.id === form.proxyId"
+                    class="ml-auto shrink-0 p-0.5 rounded opacity-60 hover:opacity-100 hover:bg-red-500/20 transition-all"
+                    style="color: var(--tm-text-muted)"
+                    @click="removeChainHop(hop.id)"
+                  >
+                    <el-icon :size="12"><Close /></el-icon>
+                  </button>
+                </div>
+                <!-- Target -->
+                <div
+                  class="flex items-center gap-2 px-2 py-1.5 rounded"
+                  style="background: var(--tm-bg-elevated)"
+                >
+                  <span class="text-[10px] font-mono shrink-0" style="color: var(--tm-text-muted)">{{ connectionChain.length + 1 }}</span>
+                  <span class="text-[10px] shrink-0" style="color: var(--tm-text-muted)">➜</span>
+                  <span class="truncate font-medium" style="color: #10b981">{{ form.host || 'target' }}</span>
+                  <span class="text-[10px]" style="color: var(--tm-text-muted)">({{ t('connection.bastion').includes('Jump') ? 'Target' : '目标' }})</span>
+                </div>
               </div>
             </div>
-            <div v-else class="text-secondary">
+            <div v-else style="color: var(--tm-text-secondary)">
               {{ t('connection.noProxyConfigured') }}
             </div>
           </div>

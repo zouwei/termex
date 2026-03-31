@@ -5,6 +5,8 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import "@xterm/xterm/css/xterm.css";
 import { tauriInvoke, tauriListen } from "@/utils/tauri";
 import { getTerminalTheme } from "@/utils/colors";
+import { useSettingsStore } from "@/stores/settingsStore";
+import { buildFontFamilyCSS } from "@/utils/fontLoader";
 
 /**
  * Composable that manages an xterm.js terminal instance
@@ -21,11 +23,12 @@ export function useTerminal(sessionId: Ref<string>) {
 
   /** Mounts xterm.js into a DOM element and binds to the SSH session. */
   async function mount(el: HTMLElement) {
+    const settingsStore = useSettingsStore();
     terminal = new Terminal({
-      cursorBlink: true,
-      cursorStyle: "bar",
-      fontSize: 14,
-      fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
+      cursorBlink: settingsStore.cursorBlink,
+      cursorStyle: settingsStore.cursorStyle,
+      fontSize: settingsStore.fontSize,
+      fontFamily: buildFontFamilyCSS(settingsStore.fontFamily),
       theme: getTerminalTheme(),
       allowProposedApi: true,
     });
@@ -133,6 +136,27 @@ export function useTerminal(sessionId: Ref<string>) {
     }
   }
 
+  /** Updates the terminal font family and size. */
+  function setFont(family: string, size: number) {
+    if (!terminal) return;
+    terminal.options.fontFamily = buildFontFamilyCSS(family);
+    terminal.options.fontSize = size;
+
+    // WebGL addon caches a font texture atlas — must recreate it after font change
+    if (webglAddon) {
+      webglAddon.dispose();
+      webglAddon = null;
+      try {
+        webglAddon = new WebglAddon();
+        terminal.loadAddon(webglAddon);
+      } catch {
+        webglAddon = null;
+      }
+    }
+
+    fitAddon?.fit();
+  }
+
   /** Cleans up all resources. */
   function dispose() {
     unlistenData?.();
@@ -151,5 +175,5 @@ export function useTerminal(sessionId: Ref<string>) {
 
   onUnmounted(dispose);
 
-  return { terminalRef, mount, getDimensions, fit, setTheme, dispose };
+  return { terminalRef, mount, getDimensions, fit, setTheme, setFont, dispose };
 }

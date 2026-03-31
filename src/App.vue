@@ -170,6 +170,8 @@ onMounted(async () => {
   await settingsStore.loadAll();
   // Sync loaded language (effective value) to i18n
   locale.value = settingsStore.effectiveLanguage;
+  // Load custom fonts from ~/.termex/fonts/
+  await settingsStore.loadCustomFonts();
   serverStore.fetchAll();
 
   // Listen for native menu events
