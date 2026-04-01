@@ -260,11 +260,11 @@ async function handleContextMenuSelect(action: string) {
         ElMessage.info(t("sftp.editTodo"));
         break;
       case "copy":
-        sftpStore.copyToClipboard(selectedEntry.value);
+        sftpStore.copyToClipboard("right", selectedEntry.value);
         ElMessage.success(t("sftp.copied"));
         break;
       case "cut":
-        sftpStore.cutToClipboard(selectedEntry.value);
+        sftpStore.cutToClipboard("right", selectedEntry.value);
         ElMessage.success(t("sftp.cut"));
         break;
       case "paste":

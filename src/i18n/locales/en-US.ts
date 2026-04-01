@@ -139,6 +139,10 @@ export default {
     preparing: "Preparing",
     remove: "Remove",
     error: "Error",
+    serverTransfer: "Server transfer started",
+    transferError: "Transfer failed: {error}",
+    serverDisconnected: "Server disconnected",
+    dirTransferTodo: "Directory transfer coming soon",
   },
   ai: {
     panelTitle: "AI Assistant",

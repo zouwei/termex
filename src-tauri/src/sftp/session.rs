@@ -28,11 +28,12 @@ pub struct TransferProgress {
     pub transferred: u64,
     pub total: u64,
     pub done: bool,
+    pub error: Option<String>,
 }
 
 /// Wraps an `SftpSession` tied to an SSH connection.
 pub struct SftpHandle {
-    sftp: SftpSession,
+    pub(super) sftp: SftpSession,
 }
 
 impl SftpHandle {
@@ -160,6 +161,7 @@ impl SftpHandle {
                     transferred,
                     total,
                     done: false,
+                    error: None,
                 },
             );
         }
@@ -172,6 +174,7 @@ impl SftpHandle {
                 transferred,
                 total,
                 done: true,
+                error: None,
             },
         );
 
@@ -222,6 +225,7 @@ impl SftpHandle {
                     transferred,
                     total,
                     done: false,
+                    error: None,
                 },
             );
         }
@@ -234,6 +238,7 @@ impl SftpHandle {
                 transferred,
                 total,
                 done: true,
+                error: None,
             },
         );
 
@@ -259,4 +264,70 @@ impl SftpHandle {
         self.sftp.close().await?;
         Ok(())
     }
+}
+
+/// Streams a file from one SFTP server to another in 32KB chunks.
+/// Data relays through local memory (Server A → Termex → Server B).
+pub async fn transfer_between(
+    src: &SftpHandle,
+    src_path: &str,
+    dst: &SftpHandle,
+    dst_path: &str,
+    transfer_id: &str,
+    app: &tauri::AppHandle,
+) -> Result<(), SftpError> {
+    use russh_sftp::protocol::OpenFlags;
+    use tauri::Emitter;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let meta = src.sftp.metadata(src_path).await?;
+    let total = meta.size.unwrap_or(0);
+
+    let mut src_file = src.sftp.open(src_path).await?;
+    let mut dst_file = dst
+        .sftp
+        .open_with_flags(
+            dst_path,
+            OpenFlags::CREATE | OpenFlags::TRUNCATE | OpenFlags::WRITE,
+        )
+        .await?;
+
+    let mut transferred: u64 = 0;
+    let mut buf = vec![0u8; 32768];
+    let event = format!("sftp://progress/{transfer_id}");
+
+    loop {
+        let n = src_file.read(&mut buf).await?;
+        if n == 0 {
+            break;
+        }
+        dst_file.write_all(&buf[..n]).await?;
+        transferred += n as u64;
+
+        let _ = app.emit(
+            &event,
+            TransferProgress {
+                transfer_id: transfer_id.to_string(),
+                remote_path: src_path.to_string(),
+                transferred,
+                total,
+                done: false,
+                error: None,
+            },
+        );
+    }
+
+    let _ = app.emit(
+        &event,
+        TransferProgress {
+            transfer_id: transfer_id.to_string(),
+            remote_path: src_path.to_string(),
+            transferred,
+            total,
+            done: true,
+            error: None,
+        },
+    );
+
+    Ok(())
 }

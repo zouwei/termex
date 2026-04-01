@@ -225,6 +225,7 @@ Termex:      ✓      ✓     ✓      ✓      ✓
 | **V0.15** | **终端搜索** | **终端内文本搜索** + 持久化关键词高亮 + 跨 Tab 搜索 |
 | **V0.16** | **快捷键自定义** | **用户自定义快捷键** + 录入式绑定 + 冲突检测 + 持久化 |
 | **V0.17** | **服务器间传输** | **双远程 SFTP 面板** + 服务器间流式文件传输 + 统一面板组件 |
+| **V0.18** | **代理连接** | **SOCKS5/SOCKS4/HTTP CONNECT** 代理协议 + 独立代理表 + 代理管理面板 |
 | V1.0 | 正式版 | AI 全面上线 + 多后端支持 + 稳定性加固 |
 | V1.5+ | 进阶版 | 监控 + 团队 + 插件 + AI 运维助手 |
 
@@ -299,3 +300,15 @@ SFTP 面板生产级增强：修复布局问题、完整右键菜单、剪贴板
 - **传输进度 + 错误处理**（实时进度条，断连错误提示，与现有传输共存）
 
 详见 [V0.17.0 完整迭代文档](./iterations/v0.17.0-server-to-server-sftp.md)
+
+#### V0.18.0 — SSH 代理连接协议支持
+
+一次性补全 SSH 客户端常见代理协议，对标 PuTTY / SecureCRT / Termius 内置代理支持。
+
+- **SOCKS5 / SOCKS4 / HTTP CONNECT 代理协议**（tokio-socks + 手工 HTTP CONNECT 实现）
+- **独立代理表 + 引用模式**（Settings 全局管理代理列表，连接时选择共享代理）
+- **ConnectModal 新增 Proxy Tab**（与 Authorization / SSH Tunnel 平级，选择预配置代理）
+- **代理 + 跳板机组合**（Client → Proxy → Bastion → Target 完整链路支持）
+- **代理密码安全存储**（OS Keychain + AES-256-GCM 加密，遵循现有凭证安全策略）
+
+详见 [V0.18.0 完整迭代文档](./iterations/v0.18.0-proxy-protocols.md)

@@ -59,7 +59,7 @@ async function openSftp() {
   if (sftpStore.panelVisible) {
     sftpStore.panelVisible = false;
   } else {
-    await sftpStore.open(session.id);
+    await sftpStore.open(session.id, session.serverName);
   }
 }
 
@@ -166,13 +166,13 @@ async function onCtxSelect(action: string) {
 
       // Reopen SFTP if it was open before
       if (sftpWasOpen && sessionStore.activeSession?.status === "connected") {
-        await sftpStore.open(sessionStore.activeSession.id);
+        await sftpStore.open(sessionStore.activeSession.id, sessionStore.activeSession.serverName);
       }
     }
   } else if (action === "reconnect-all") {
     const allSessions = [...sessionStore.sessions.values()];
     const allTabs = [...sessionStore.tabs];
-    const sftpSessionIds = new Map<string, boolean>(); // Map old session ID to SFTP open state
+    const sftpSessionIds = new Map<string, boolean>();
 
     for (const t of allTabs) {
       if (sftpStore.sessionId === t.sessionId && sftpStore.panelVisible) {
@@ -185,10 +185,8 @@ async function onCtxSelect(action: string) {
       const wasSftpOpen = sftpSessionIds.get(s.id) ?? false;
       await sessionStore.connect(s.serverId, s.serverName);
 
-      // Reopen SFTP for sessions that had it open
-      // Note: After connect, the new session is now active
       if (wasSftpOpen && sessionStore.activeSession?.status === "connected") {
-        await sftpStore.open(sessionStore.activeSession.id);
+        await sftpStore.open(sessionStore.activeSession.id, sessionStore.activeSession.serverName);
       }
     }
   }

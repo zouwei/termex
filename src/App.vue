@@ -190,6 +190,21 @@ useShortcuts({
 
 const unlisteners: Array<() => void> = [];
 
+// When active tab changes or session becomes connected, sync SFTP right pane
+watch(
+  () => {
+    const id = sessionStore.activeSessionId;
+    const session = id ? sessionStore.sessions.get(id) : null;
+    return { id, status: session?.status, name: session?.serverName };
+  },
+  ({ id, status, name }) => {
+    if (!id || id.startsWith("connecting-")) return;
+    if (status === "connected" && sftpStore.panelVisible && name) {
+      sftpStore.syncToActiveSession(id, name);
+    }
+  },
+);
+
 // Watch language changes and update i18n locale
 watch(
   () => settingsStore.effectiveLanguage,
@@ -228,7 +243,7 @@ onMounted(async () => {
       if (sftpStore.panelVisible) {
         sftpStore.panelVisible = false;
       } else {
-        await sftpStore.open(session.id);
+        await sftpStore.open(session.id, session.serverName);
       }
     }
   }));

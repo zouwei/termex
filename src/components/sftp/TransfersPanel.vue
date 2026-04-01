@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { useI18n } from "vue-i18n";
 import { useSftpStore } from "@/stores/sftpStore";
-import { Upload, Download, Close } from "@element-plus/icons-vue";
+import { Upload, Download, Sort, Close } from "@element-plus/icons-vue";
 import { ElMessage } from "element-plus";
+import type { TransferItem } from "@/types/sftp";
 
 const { t } = useI18n();
 const sftpStore = useSftpStore();
@@ -14,14 +15,27 @@ function formatBytes(bytes: number): string {
   return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
 }
 
-function getStatusText(item: any): string {
+function getStatusText(item: TransferItem): string {
+  if (item.error) return t("sftp.error");
   if (item.done) return t("sftp.completed");
   if (item.total === 0) return t("sftp.preparing");
   return `${Math.round((item.transferred / item.total) * 100)}%`;
 }
 
+function getStatusColor(item: TransferItem): string {
+  if (item.error) return "#ef4444";
+  if (item.done) return "#10b981";
+  return "var(--tm-text-secondary)";
+}
+
+function getSubtitle(item: TransferItem): string {
+  if (item.direction === "server-to-server") {
+    return `${item.srcServerName ?? ""} → ${item.dstServerName ?? ""}`;
+  }
+  return item.localPath;
+}
+
 function handleClear() {
-  // Remove all completed transfers
   sftpStore.transfers = sftpStore.transfers.filter((t) => !t.done);
   ElMessage.success(t("sftp.cleared"));
 }
@@ -57,27 +71,34 @@ function handleRemoveTransfer(id: string) {
         :key="item.id"
         :class="[
           'px-3 py-3 border-b transition-opacity',
-          item.done ? 'opacity-60' : '',
+          item.done && !item.error ? 'opacity-60' : '',
         ]"
         style="border-color: var(--tm-border)"
       >
-        <!-- File info -->
         <div class="flex items-center gap-2 mb-2">
+          <!-- Direction icon -->
           <el-icon :size="14">
             <Upload v-if="item.direction === 'upload'" />
-            <Download v-else />
+            <Download v-else-if="item.direction === 'download'" />
+            <Sort v-else />
           </el-icon>
+
           <div class="flex-1 min-w-0">
             <div class="text-xs font-medium truncate" style="color: var(--tm-text-primary)">
               {{ item.remotePath.split("/").pop() }}
             </div>
             <div class="text-[10px] truncate mt-0.5" style="color: var(--tm-text-muted)">
-              {{ item.direction === "upload" ? item.localPath : item.localPath }}
+              {{ getSubtitle(item) }}
+            </div>
+            <!-- Error message -->
+            <div v-if="item.error" class="text-[10px] truncate mt-0.5" style="color: #ef4444">
+              {{ item.error }}
             </div>
           </div>
+
           <div class="text-right flex items-center gap-2">
             <div>
-              <div class="text-xs font-medium" :style="{ color: item.done ? '#10b981' : 'var(--tm-text-secondary)' }">
+              <div class="text-xs font-medium" :style="{ color: getStatusColor(item) }">
                 {{ getStatusText(item) }}
               </div>
               <div class="text-[10px]" style="color: var(--tm-text-muted)">
@@ -85,7 +106,6 @@ function handleRemoveTransfer(id: string) {
                 <span v-if="item.total > 0"> / {{ formatBytes(item.total) }}</span>
               </div>
             </div>
-            <!-- Delete button -->
             <button
               class="text-xs p-1 rounded hover:bg-white/10 transition-colors flex-shrink-0"
               :title="t('sftp.remove')"
@@ -101,7 +121,7 @@ function handleRemoveTransfer(id: string) {
         <!-- Progress bar -->
         <el-progress
           :percentage="item.total > 0 ? Math.round((item.transferred / item.total) * 100) : 0"
-          :status="item.done ? 'success' : undefined"
+          :status="item.error ? 'exception' : item.done ? 'success' : undefined"
           :stroke-width="3"
           :show-text="false"
         />

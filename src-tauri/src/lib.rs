@@ -288,6 +288,7 @@ pub fn run() {
             commands::sftp::sftp_download,
             commands::sftp::sftp_upload,
             commands::sftp::sftp_canonicalize,
+            commands::sftp::sftp_transfer,
             // Local filesystem
             commands::local_fs::local_home_dir,
             commands::local_fs::local_list_dir,

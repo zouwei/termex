@@ -15,9 +15,10 @@ export interface TransferProgress {
   transferred: number;
   total: number;
   done: boolean;
+  error?: string;
 }
 
-export type TransferDirection = "upload" | "download";
+export type TransferDirection = "upload" | "download" | "server-to-server";
 
 export interface TransferItem {
   id: string;
@@ -27,4 +28,20 @@ export interface TransferItem {
   transferred: number;
   total: number;
   done: boolean;
+  error?: string;
+  srcSessionId?: string;
+  dstSessionId?: string;
+  srcServerName?: string;
+  dstServerName?: string;
+}
+
+export type PaneMode = "local" | "remote";
+
+export interface PaneState {
+  mode: PaneMode;
+  sessionId: string | null;
+  serverName: string | null;
+  currentPath: string;
+  entries: FileEntry[];
+  loading: boolean;
 }

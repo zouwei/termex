@@ -126,14 +126,17 @@ pub fn server_create(
     let now = time::OffsetDateTime::now_utc().to_string();
     let tags_json = serde_json::to_string(&input.tags).unwrap_or_else(|_| "[]".into());
 
-    // Store credentials in OS keychain
-    let pw_keychain_id = store_to_keychain(
+    // Store credentials in OS keychain + encrypted fallback
+    let mk = state.master_key.read().expect("master_key lock poisoned").clone();
+    let pw = store_credential(
         input.password.as_deref(),
         &keychain::ssh_password_key(&id),
+        &mk,
     );
-    let pp_keychain_id = store_to_keychain(
+    let pp = store_credential(
         input.passphrase.as_deref(),
         &keychain::ssh_passphrase_key(&id),
+        &mk,
     );
 
     state
@@ -141,9 +144,10 @@ pub fn server_create(
         .with_conn(|conn| {
             conn.execute(
                 "INSERT INTO servers (id, name, host, port, username, auth_type,
-                    password_keychain_id, key_path, passphrase_keychain_id, group_id, sort_order,
+                    password_enc, password_keychain_id, key_path,
+                    passphrase_enc, passphrase_keychain_id, group_id, sort_order,
                     proxy_id, startup_cmd, encoding, tags, created_at, updated_at)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19)",
                 rusqlite::params![
                     id,
                     input.name,
@@ -151,9 +155,11 @@ pub fn server_create(
                     input.port,
                     input.username,
                     input.auth_type.as_str(),
-                    pw_keychain_id,
+                    pw.encrypted,
+                    pw.keychain_id,
                     input.key_path,
-                    pp_keychain_id,
+                    pp.encrypted,
+                    pp.keychain_id,
                     input.group_id,
                     0,
                     input.proxy_id,
@@ -200,14 +206,17 @@ pub fn server_update(
     let now = time::OffsetDateTime::now_utc().to_string();
     let tags_json = serde_json::to_string(&input.tags).unwrap_or_else(|_| "[]".into());
 
-    // Update keychain credentials (only if provided / non-empty)
-    let pw_keychain_id = store_to_keychain(
+    // Update keychain + encrypted fallback (only if provided / non-empty)
+    let mk = state.master_key.read().expect("master_key lock poisoned").clone();
+    let pw = store_credential(
         input.password.as_deref(),
         &keychain::ssh_password_key(&id),
+        &mk,
     );
-    let pp_keychain_id = store_to_keychain(
+    let pp = store_credential(
         input.passphrase.as_deref(),
         &keychain::ssh_passphrase_key(&id),
+        &mk,
     );
 
     state
@@ -215,19 +224,25 @@ pub fn server_update(
         .with_conn(|conn| {
             let affected = conn.execute(
                 "UPDATE servers SET name=?1, host=?2, port=?3, username=?4, auth_type=?5,
-                    password_keychain_id=COALESCE(?6, password_keychain_id), key_path=?7,
-                    passphrase_keychain_id=COALESCE(?8, passphrase_keychain_id), group_id=?9,
-                    proxy_id=?10, startup_cmd=?11, encoding=?12, tags=?13, updated_at=?14
-                 WHERE id=?15",
+                    password_enc=COALESCE(?6, password_enc),
+                    password_keychain_id=COALESCE(?7, password_keychain_id),
+                    key_path=?8,
+                    passphrase_enc=COALESCE(?9, passphrase_enc),
+                    passphrase_keychain_id=COALESCE(?10, passphrase_keychain_id),
+                    group_id=?11,
+                    proxy_id=?12, startup_cmd=?13, encoding=?14, tags=?15, updated_at=?16
+                 WHERE id=?17",
                 rusqlite::params![
                     input.name,
                     input.host,
                     input.port,
                     input.username,
                     input.auth_type.as_str(),
-                    pw_keychain_id,
+                    pw.encrypted,
+                    pw.keychain_id,
                     input.key_path,
-                    pp_keychain_id,
+                    pp.encrypted,
+                    pp.keychain_id,
                     input.group_id,
                     input.proxy_id,
                     input.startup_cmd,
@@ -504,8 +519,39 @@ pub fn group_reorder(
 
 // ── Helpers ────────────────────────────────────────────────────
 
-/// Stores a credential in the OS keychain. Returns the keychain key as Some(String)
-/// if a non-empty value was stored, or None if the value was empty/not provided.
+/// Result of storing a credential: keychain ID and/or encrypted fallback blob.
+struct StoredCredential {
+    keychain_id: Option<String>,
+    encrypted: Option<Vec<u8>>,
+}
+
+/// Stores a credential in OS keychain + AES-256-GCM encrypted fallback.
+/// Always produces an encrypted fallback so credentials survive keychain issues.
+fn store_credential(
+    value: Option<&str>,
+    keychain_key: &str,
+    master_key: &Option<[u8; 32]>,
+) -> StoredCredential {
+    let text = match value.filter(|s| !s.is_empty()) {
+        Some(t) => t,
+        None => return StoredCredential { keychain_id: None, encrypted: None },
+    };
+
+    // Try keychain first
+    let keychain_id = match keychain::store(keychain_key, text) {
+        Ok(()) => Some(keychain_key.to_string()),
+        Err(_) => None,
+    };
+
+    // Always store encrypted fallback
+    let encrypted = master_key
+        .as_ref()
+        .and_then(|key| aes::encrypt(key, text.as_bytes()).ok());
+
+    StoredCredential { keychain_id, encrypted }
+}
+
+/// Legacy helper for backward compat (returns only keychain_id).
 fn store_to_keychain(value: Option<&str>, keychain_key: &str) -> Option<String> {
     let text = value.filter(|s| !s.is_empty())?;
     match keychain::store(keychain_key, text) {

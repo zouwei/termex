@@ -139,6 +139,10 @@ export default {
     preparing: "准备中",
     remove: "移除",
     error: "错误",
+    serverTransfer: "服务器间传输已开始",
+    transferError: "传输失败：{error}",
+    serverDisconnected: "服务器已断连",
+    dirTransferTodo: "目录传输功能即将上线",
   },
   ai: {
     panelTitle: "AI 助手",

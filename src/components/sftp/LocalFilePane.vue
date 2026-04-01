@@ -54,9 +54,9 @@ onMounted(async () => {
   }
 });
 
-// Sync local current path to SFTP store for downloads
+// Sync local current path to SFTP store (leftPane) for downloads
 watch(currentPath, (newPath) => {
-  sftpStore.localCurrentPath = newPath;
+  sftpStore.setPane("left", { currentPath: newPath });
 });
 
 async function listDir(path: string) {

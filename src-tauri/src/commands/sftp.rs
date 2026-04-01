@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use tauri::{AppHandle, State};
 
-use crate::sftp::session::FileEntry;
+use crate::sftp::session::{FileEntry, TransferProgress, transfer_between};
 use crate::sftp::SftpError;
 use crate::state::AppState;
 
@@ -216,6 +216,54 @@ pub async fn sftp_canonicalize(
         .get(&session_id)
         .ok_or_else(|| SftpError::SessionNotFound(session_id).to_string())?;
     sftp.canonicalize(&path).await.map_err(|e| e.to_string())
+}
+
+/// Transfers a file between two remote SFTP servers via local relay.
+#[tauri::command]
+pub async fn sftp_transfer(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    src_session_id: String,
+    src_path: String,
+    dst_session_id: String,
+    dst_path: String,
+) -> Result<String, String> {
+    let transfer_id = uuid::Uuid::new_v4().to_string();
+
+    let sessions = state.sftp_sessions.read().await;
+    let src = sessions
+        .get(&src_session_id)
+        .ok_or_else(|| SftpError::SessionNotFound(src_session_id).to_string())?
+        .clone();
+    let dst = sessions
+        .get(&dst_session_id)
+        .ok_or_else(|| SftpError::SessionNotFound(dst_session_id).to_string())?
+        .clone();
+    drop(sessions);
+
+    let transfer_id_clone = transfer_id.clone();
+    let src_path_clone = src_path.clone();
+    let dst_path_clone = dst_path.clone();
+
+    tokio::spawn(async move {
+        if let Err(e) = transfer_between(&src, &src_path_clone, &dst, &dst_path_clone, &transfer_id_clone, &app).await {
+            use tauri::Emitter;
+            let event = format!("sftp://progress/{}", transfer_id_clone);
+            let _ = app.emit(
+                &event,
+                TransferProgress {
+                    transfer_id: transfer_id_clone,
+                    remote_path: src_path_clone,
+                    transferred: 0,
+                    total: 0,
+                    done: true,
+                    error: Some(e.to_string()),
+                },
+            );
+        }
+    });
+
+    Ok(transfer_id)
 }
 
 // TODO: Implement chmod once russh-sftp provides setstat API
