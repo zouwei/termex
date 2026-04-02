@@ -320,9 +320,9 @@ const modeSelectorVisible = ref(false);
         <el-icon :size="12"><FolderAdd /></el-icon>
       </button>
 
-      <!-- CWD Sync toggle (remote pane only) -->
+      <!-- CWD Sync toggle (any remote pane) -->
       <button
-        v-if="props.side === 'right' && paneOps.isRemote.value"
+        v-if="paneOps.isRemote.value"
         class="sftp-icon-btn"
         :class="{ 'sftp-icon-btn-active': cwdSyncEnabled }"
         :title="cwdSyncEnabled ? 'Sync ON — following terminal CWD' : 'Sync terminal CWD'"

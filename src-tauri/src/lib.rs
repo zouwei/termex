@@ -10,13 +10,20 @@ pub mod ssh;
 pub mod storage;
 mod state;
 
-use tauri::menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
-use tauri::{Emitter, Manager};
+use tauri::menu::{CheckMenuItem, CheckMenuItemBuilder, Menu, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
+use tauri::{Emitter, Manager, Wry};
 
 use state::AppState;
 
-/// Builds the native application menu.
-fn build_menu(app: &tauri::App) -> Result<tauri::menu::Menu<tauri::Wry>, Box<dyn std::error::Error>> {
+/// Return type for build_menu: the menu itself plus CheckMenuItem refs for state sync.
+struct AppMenu {
+    menu: Menu<Wry>,
+    toggle_sidebar: CheckMenuItem<Wry>,
+    toggle_ai: CheckMenuItem<Wry>,
+}
+
+/// Builds the native application menu, returning CheckMenuItem refs for state sync.
+fn build_menu(app: &tauri::App) -> Result<AppMenu, Box<dyn std::error::Error>> {
     // App submenu (macOS "Termex" menu)
     let settings = MenuItemBuilder::with_id("settings", "Settings...")
         .accelerator("CmdOrCtrl+,")
@@ -65,7 +72,9 @@ fn build_menu(app: &tauri::App) -> Result<tauri::menu::Menu<tauri::Wry>, Box<dyn
         .select_all()
         .build()?;
 
-    // View submenu — CheckMenuItem for toggle state sync with frontend
+    // View submenu — CheckMenuItem for toggle state sync with frontend.
+    // We clone these items so on_menu_event can access them directly
+    // (Menu::get() does not search recursively into submenus).
     let toggle_sidebar = CheckMenuItemBuilder::with_id("toggle_sidebar", "Sidebar")
         .accelerator("CmdOrCtrl+\\")
         .checked(true)
@@ -109,7 +118,7 @@ fn build_menu(app: &tauri::App) -> Result<tauri::menu::Menu<tauri::Wry>, Box<dyn
         .item(&help_menu)
         .build()?;
 
-    Ok(menu)
+    Ok(AppMenu { menu, toggle_sidebar, toggle_ai })
 }
 
 /// Initializes and runs the Tauri application.
@@ -166,8 +175,16 @@ pub fn run() {
                 }
             }
 
-            let menu = build_menu(app)?;
-            app.set_menu(menu)?;
+            let app_menu = build_menu(app)?;
+            app.set_menu(app_menu.menu)?;
+
+            // Register CheckMenuItem refs for frontend sync (Menu::get doesn't search submenus)
+            let toggle_sidebar_ref = app_menu.toggle_sidebar;
+            let toggle_ai_ref = app_menu.toggle_ai;
+            let mut check_items = std::collections::HashMap::new();
+            check_items.insert("toggle_sidebar".to_string(), toggle_sidebar_ref.clone());
+            check_items.insert("toggle_ai".to_string(), toggle_ai_ref.clone());
+            app.manage(commands::menu::MenuCheckItems(std::sync::Mutex::new(check_items)));
 
             app.on_menu_event(move |app_handle, event| {
                 match event.id().as_ref() {
@@ -184,10 +201,14 @@ pub fn run() {
                         let _ = app_handle.emit("menu://close-tab", ());
                     }
                     "toggle_sidebar" => {
-                        let _ = app_handle.emit("menu://toggle-sidebar", ());
+                        // CheckMenuItem auto-toggles on click/accelerator.
+                        // Read the new checked state so the frontend can SET (not toggle).
+                        let checked = toggle_sidebar_ref.is_checked().unwrap_or(true);
+                        let _ = app_handle.emit("menu://toggle-sidebar", checked);
                     }
                     "toggle_ai" => {
-                        let _ = app_handle.emit("menu://toggle-ai", ());
+                        let checked = toggle_ai_ref.is_checked().unwrap_or(false);
+                        let _ = app_handle.emit("menu://toggle-ai", checked);
                     }
                     "check_update" => {
                         let _ = app_handle.emit("menu://check-update", ());

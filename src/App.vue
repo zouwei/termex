@@ -204,7 +204,7 @@ watch(
   },
 );
 
-// Sync View menu check state with panel visibility
+// Sync View menu check state with panel visibility (single source of truth)
 watch(sidebarVisible, (v) => {
   tauriInvoke("set_menu_checked", { id: "toggle_sidebar", checked: v });
 });
@@ -237,11 +237,15 @@ onMounted(async () => {
       }
     });
   }));
-  unlisteners.push(await tauriListen("menu://toggle-sidebar", () => {
-    dedupAction("sidebar", () => { sidebarVisible.value = !sidebarVisible.value; });
+  unlisteners.push(await tauriListen<boolean>("menu://toggle-sidebar", (checked) => {
+    dedupAction("sidebar", () => {
+      sidebarVisible.value = typeof checked === "boolean" ? checked : !sidebarVisible.value;
+    });
   }));
-  unlisteners.push(await tauriListen("menu://toggle-ai", () => {
-    dedupAction("ai", () => { aiPanelVisible.value = !aiPanelVisible.value; });
+  unlisteners.push(await tauriListen<boolean>("menu://toggle-ai", (checked) => {
+    dedupAction("ai", () => {
+      aiPanelVisible.value = typeof checked === "boolean" ? checked : !aiPanelVisible.value;
+    });
   }));
   unlisteners.push(await tauriListen("menu://check-update", () => {
     updateDialogVisible.value = true;
