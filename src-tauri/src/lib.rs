@@ -220,6 +220,12 @@ pub fn run() {
             commands::server::group_update,
             commands::server::group_delete,
             commands::server::group_reorder,
+            // Proxy
+            commands::proxy::proxy_list,
+            commands::proxy::proxy_create,
+            commands::proxy::proxy_update,
+            commands::proxy::proxy_delete,
+            commands::proxy::proxy_get_password,
             // SSH
             commands::ssh::ssh_connect,
             commands::ssh::ssh_open_shell,

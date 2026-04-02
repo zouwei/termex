@@ -4,6 +4,7 @@ use russh::client;
 
 use super::auth::ClientHandler;
 use super::channel::{ChannelCommand, ChannelHandle, spawn_channel_task};
+use super::proxy::{self, ProxyConfig};
 use super::SshError;
 use crate::sftp::session::SftpHandle;
 
@@ -69,6 +70,33 @@ impl SshSession {
         let handle = client::connect_stream(config, stream, handler)
             .await
             .map_err(|e| SshError::ConnectionFailed(format!("Failed to connect through proxy: {}", e)))?;
+
+        Ok(Self {
+            handle,
+            channel: None,
+            proxy_chain: Vec::new(),
+        })
+    }
+
+    /// Connects to an SSH server through a network proxy (SOCKS5/SOCKS4/HTTP CONNECT).
+    /// The proxy provides the TCP transport; SSH handshake happens over the tunneled stream.
+    pub async fn connect_via_network_proxy(
+        proxy: &ProxyConfig,
+        host: &str,
+        port: u16,
+    ) -> Result<Self, SshError> {
+        let stream = proxy::connect_via_proxy(proxy, host, port).await?;
+
+        let config = Arc::new(client::Config {
+            inactivity_timeout: Some(std::time::Duration::from_secs(3600)),
+            keepalive_interval: Some(std::time::Duration::from_secs(30)),
+            ..Default::default()
+        });
+
+        let handler = ClientHandler;
+        let handle = client::connect_stream(config, stream, handler)
+            .await
+            .map_err(|e| SshError::ConnectionFailed(format!("SSH via proxy: {}", e)))?;
 
         Ok(Self {
             handle,

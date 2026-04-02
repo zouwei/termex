@@ -81,7 +81,7 @@ function findMatchingAsset(
 
   const extPrefs: Record<string, string[]> = {
     macos: [".dmg"],
-    windows: ["-setup.exe", ".msi"],
+    windows: ["_setup.exe", ".msi"],
     linux: [".AppImage", ".deb"],
   };
   const exts = extPrefs[platform.os] || [];

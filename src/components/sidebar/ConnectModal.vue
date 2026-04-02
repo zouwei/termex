@@ -1,15 +1,18 @@
 <script setup lang="ts">
 import { ref, reactive, watch, computed } from "vue";
 import { useI18n } from "vue-i18n";
-import { Close } from "@element-plus/icons-vue";
+import { Close, Plus, Connection } from "@element-plus/icons-vue";
+import { ElMessage } from "element-plus";
 import { useServerStore } from "@/stores/serverStore";
 import { useSessionStore } from "@/stores/sessionStore";
+import { useProxyStore } from "@/stores/proxyStore";
 import { tauriInvoke } from "@/utils/tauri";
 import type { ServerInput } from "@/types/server";
 
 const { t } = useI18n();
 const serverStore = useServerStore();
 const sessionStore = useSessionStore();
+const proxyStore = useProxyStore();
 
 const props = defineProps<{
   visible: boolean;
@@ -41,6 +44,7 @@ const form = reactive<ServerInput>({
   passphrase: "",
   groupId: null,
   proxyId: null,
+  networkProxyId: null,
   startupCmd: "",
   tags: [],
 });
@@ -49,61 +53,207 @@ const title = computed(() =>
   props.editId ? t("connection.name") : t("sidebar.newConnection"),
 );
 
-// Compute available bastion servers (exclude self and circular references)
+// ── Unified connection chain ──
+// Each hop is either a network proxy or a bastion server, stored in order.
+interface ChainHop {
+  type: "proxy" | "bastion";
+  id: string;
+}
+
+const chain = ref<ChainHop[]>([]);
+
+// Staging selects — used to pick items to add, then cleared after adding
+const tunnelSelect = ref<string | null>(null);
+const proxySelect = ref<string | null>(null);
+
+// IDs already in the chain, for disabling in dropdowns
+const usedBastionIds = computed(() =>
+  new Set(chain.value.filter((h) => h.type === "bastion").map((h) => h.id)),
+);
+const usedProxyIds = computed(() =>
+  new Set(chain.value.filter((h) => h.type === "proxy").map((h) => h.id)),
+);
+
+// Available bastions (exclude self, circular refs, and already-in-chain)
 const availableBastions = computed(() => {
-  const current_id = props.editId;
-  const servers = serverStore.servers.filter(s => s.id !== current_id);
+  const currentId = props.editId;
+  return serverStore.servers
+    .filter((s) => s.id !== currentId)
+    .filter((s) => {
+      let pid = s.proxyId;
+      const visited = new Set<string | undefined>();
+      while (pid) {
+        if (pid === currentId) return false;
+        if (visited.has(pid)) return false;
+        visited.add(pid);
+        const next = serverStore.servers.find((srv) => srv.id === pid);
+        pid = next?.proxyId;
+      }
+      return true;
+    });
+});
 
-  return servers.filter(s => {
-    // Check if selecting this server would create a circular reference
-    let proxy_id = s.proxyId;
-    const visited = new Set<string | undefined>();
-    while (proxy_id) {
-      if (proxy_id === current_id) return false; // Would create circular reference
-      if (visited.has(proxy_id)) return false; // Would create a loop
-      visited.add(proxy_id);
-      const next = serverStore.servers.find(srv => srv.id === proxy_id);
-      proxy_id = next?.proxyId;
+function onTunnelChange(id: string | null) {
+  if (!id || usedBastionIds.value.has(id)) return;
+  chain.value.push({ type: "bastion", id });
+  tunnelSelect.value = null;
+}
+
+function onProxyChange(id: string | null) {
+  if (!id || usedProxyIds.value.has(id)) return;
+  chain.value.push({ type: "proxy", id });
+  proxySelect.value = null;
+}
+
+function removeHop(idx: number) {
+  chain.value.splice(idx, 1);
+}
+
+// Resolve hop display info
+interface PathHop {
+  type: "proxy" | "bastion";
+  label: string;
+  detail: string;
+  color: string;
+}
+
+const connectionPath = computed<PathHop[]>(() =>
+  chain.value.map((hop) => {
+    if (hop.type === "proxy") {
+      const p = proxyStore.proxies.find((px) => px.id === hop.id);
+      return {
+        type: "proxy",
+        label: p?.name ?? hop.id,
+        detail: p ? `${p.proxyType.toUpperCase()}, ${p.host}:${p.port}` : "",
+        color: "#f59e0b",
+      };
     }
-    return true;
-  });
-});
+    const s = serverStore.servers.find((sv) => sv.id === hop.id);
+    return {
+      type: "bastion",
+      label: s?.name ?? hop.id,
+      detail: s ? `${s.host}:${s.port}` : "",
+      color: "#8b5cf6",
+    };
+  }),
+);
 
-// Compute connection chain with full details for each hop
-const connectionChain = computed(() => {
-  if (!form.proxyId) return [];
+// Sync chain → form fields on save (backend supports first proxy + first bastion)
+function syncChainToForm() {
+  const firstProxy = chain.value.find((h) => h.type === "proxy");
+  const firstBastion = chain.value.find((h) => h.type === "bastion");
+  form.networkProxyId = firstProxy?.id ?? null;
+  form.proxyId = firstBastion?.id ?? null;
+}
 
-  const chain: Array<{ id: string; name: string; host: string; port: number }> = [];
-  let current_id: string | null | undefined = form.proxyId;
-  const visited = new Set<string>();
-  while (current_id) {
-    if (visited.has(current_id)) break;
-    visited.add(current_id);
-    const server = serverStore.servers.find(s => s.id === current_id);
-    if (!server) break;
-    chain.push({ id: server.id, name: server.name, host: server.host, port: server.port });
-    current_id = server.proxyId;
+// Mouse-based drag reorder (HTML5 drag-drop is broken in Tauri WKWebView)
+const dragIdx = ref<number | null>(null);
+const dragOverIdx = ref<number | null>(null);
+let mouseDownInfo: { idx: number; y: number } | null = null;
+
+function onHopMouseDown(idx: number, e: MouseEvent) {
+  if (e.button !== 0 || chain.value.length < 2) return;
+  e.preventDefault();
+  mouseDownInfo = { idx, y: e.clientY };
+
+  function onMove(ev: MouseEvent) {
+    if (!mouseDownInfo) return;
+    // Activate drag after 3px
+    if (dragIdx.value === null && Math.abs(ev.clientY - mouseDownInfo.y) > 3) {
+      dragIdx.value = mouseDownInfo.idx;
+    }
+    if (dragIdx.value === null) return;
+    // Find which hop the cursor is over
+    const els = document.querySelectorAll("[data-hop-idx]");
+    for (const el of els) {
+      const rect = (el as HTMLElement).getBoundingClientRect();
+      if (ev.clientY >= rect.top && ev.clientY <= rect.bottom) {
+        dragOverIdx.value = Number((el as HTMLElement).dataset.hopIdx);
+        break;
+      }
+    }
   }
-  return chain;
+
+  function onUp() {
+    window.removeEventListener("mousemove", onMove);
+    window.removeEventListener("mouseup", onUp);
+    if (dragIdx.value !== null && dragOverIdx.value !== null && dragIdx.value !== dragOverIdx.value) {
+      const item = chain.value.splice(dragIdx.value, 1)[0];
+      chain.value.splice(dragOverIdx.value, 0, item);
+    }
+    dragIdx.value = null;
+    dragOverIdx.value = null;
+    mouseDownInfo = null;
+  }
+
+  window.addEventListener("mousemove", onMove);
+  window.addEventListener("mouseup", onUp);
+}
+
+// ── Inline proxy creation ──
+const addingProxy = ref(false);
+const proxyForm = reactive({
+  name: "",
+  proxyType: "socks5" as "socks5" | "socks4" | "http",
+  host: "",
+  port: 1080,
+  username: "",
+  password: "",
+  tlsEnabled: false,
+  tlsVerify: true,
+  caCertPath: "",
+  clientCertPath: "",
+  clientKeyPath: "",
 });
 
-function removeChainHop(hopId: string) {
-  if (form.proxyId === hopId) {
-    // Removing the immediate bastion — check if it has its own proxy to reconnect the chain
-    const bastion = serverStore.servers.find(s => s.id === hopId);
-    form.proxyId = (bastion?.proxyId || null) as string | null;
+const proxyTypeOptions = [
+  { value: "socks5", label: "SOCKS5", defaultPort: 1080 },
+  { value: "socks4", label: "SOCKS4", defaultPort: 1080 },
+  { value: "http", label: "HTTP CONNECT", defaultPort: 8080 },
+];
+
+function onProxyTypeChange(val: string) {
+  const pt = proxyTypeOptions.find((p) => p.value === val);
+  if (pt) proxyForm.port = pt.defaultPort;
+}
+
+function startAddProxy() {
+  proxyForm.name = "";
+  proxyForm.proxyType = "socks5";
+  proxyForm.host = "";
+  proxyForm.port = 1080;
+  proxyForm.username = "";
+  proxyForm.password = "";
+  proxyForm.tlsEnabled = false;
+  proxyForm.tlsVerify = true;
+  proxyForm.caCertPath = "";
+  proxyForm.clientCertPath = "";
+  proxyForm.clientKeyPath = "";
+  addingProxy.value = true;
+}
+
+async function saveQuickProxy() {
+  if (!proxyForm.name || !proxyForm.host) return;
+  try {
+    const created = await proxyStore.create({ ...proxyForm });
+    chain.value.push({ type: "proxy", id: created.id });
+    addingProxy.value = false;
+  } catch (e) {
+    ElMessage.error(String(e));
   }
 }
 
-// Reset form when dialog opens
+// ── Form lifecycle ──
 watch(
   () => props.visible,
   (val) => {
-    if (val && !props.editId) {
-      resetForm();
-    }
-    if (val && props.editId) {
-      loadServer(props.editId);
+    if (val) {
+      proxyStore.fetchAll();
+      if (!props.editId) {
+        resetForm();
+      } else {
+        loadServer(props.editId);
+      }
     }
   },
 );
@@ -119,8 +269,10 @@ function resetForm() {
   form.passphrase = "";
   form.groupId = null;
   form.proxyId = null;
+  form.networkProxyId = null;
   form.startupCmd = "";
   form.tags = [];
+  chain.value = [];
   testResult.value = null;
   activeTab.value = "authorization";
 }
@@ -136,10 +288,16 @@ async function loadServer(id: string) {
   form.keyPath = server.keyPath ?? "";
   form.groupId = server.groupId;
   form.proxyId = (server.proxyId || null) as string | null;
+  form.networkProxyId = (server.networkProxyId || null) as string | null;
   form.startupCmd = server.startupCmd ?? "";
   form.tags = [...server.tags];
 
-  // Fetch decrypted credentials
+  // Rebuild chain from saved fields
+  const hops: ChainHop[] = [];
+  if (server.networkProxyId) hops.push({ type: "proxy", id: server.networkProxyId });
+  if (server.proxyId) hops.push({ type: "bastion", id: server.proxyId });
+  chain.value = hops;
+
   try {
     const creds = await tauriInvoke<{ password: string; passphrase: string }>(
       "server_get_credentials",
@@ -155,15 +313,13 @@ async function loadServer(id: string) {
 
 async function handleSave() {
   if (!form.host || !form.username) return;
-
   loading.value = true;
   try {
-    // Auto-fill name if empty
+    syncChainToForm();
     const input: ServerInput = {
       ...form,
       name: form.name || `${form.username}@${form.host}`,
     };
-
     if (props.editId) {
       await serverStore.updateServer(props.editId, input);
     } else {
@@ -195,15 +351,14 @@ function onKeyFileSelected(event: Event) {
 
 async function handleSaveAndConnect() {
   if (!form.host || !form.username) return;
-
   loading.value = true;
   testResult.value = null;
   try {
+    syncChainToForm();
     const input: ServerInput = {
       ...form,
       name: form.name || `${form.username}@${form.host}`,
     };
-
     let server;
     if (props.editId) {
       server = await serverStore.updateServer(props.editId, input);
@@ -257,7 +412,6 @@ async function handleTest() {
       <!-- Tab 1: Authorization Info -->
       <el-tab-pane name="authorization" :label="t('connection.authorizationInfo')">
         <el-form label-position="top" size="default">
-          <!-- Fixed area within tab: name, host+port, username -->
           <el-form-item :label="t('connection.name')">
             <el-input
               v-model="form.name"
@@ -338,76 +492,152 @@ async function handleTest() {
         </el-form>
       </el-tab-pane>
 
-      <!-- Tab 2: SSH Tunnel -->
+      <!-- Tab 2: SSH Tunnel — add multiple bastions -->
       <el-tab-pane name="tunnel" :label="t('connection.sshTunnel')">
         <el-form label-position="top" size="default">
           <el-form-item :label="t('connection.bastion')">
             <el-select
-              v-model="form.proxyId"
-              clearable
+              v-model="tunnelSelect"
               filterable
               :placeholder="t('connection.selectBastion')"
               class="w-full"
+              @change="onTunnelChange"
             >
               <el-option
                 v-for="server in availableBastions"
                 :key="server.id"
                 :label="`${server.name} (${server.host}:${server.port})`"
                 :value="server.id"
+                :disabled="usedBastionIds.has(server.id)"
               />
             </el-select>
           </el-form-item>
+        </el-form>
+      </el-tab-pane>
 
-          <!-- Connection chain -->
-          <div
-            class="px-3 py-2 rounded text-xs"
-            style="background: var(--tm-bg-hover)"
-          >
-            <div v-if="connectionChain.length > 0">
-              <div class="font-semibold mb-2" style="color: var(--tm-text-secondary)">{{ t('connection.connectionPath') }}:</div>
-              <div class="space-y-1.5">
-                <div
-                  v-for="(hop, idx) in connectionChain"
-                  :key="hop.id"
-                  class="flex items-center gap-2 px-2 py-1.5 rounded group"
-                  style="background: var(--tm-bg-elevated)"
-                >
-                  <span class="text-[10px] font-mono shrink-0" style="color: var(--tm-text-muted)">{{ idx + 1 }}</span>
-                  <span class="text-[10px] shrink-0" style="color: var(--tm-text-muted)">➜</span>
-                  <span class="truncate" style="color: var(--tm-text-primary)">{{ hop.name }}</span>
-                  <span class="text-[10px] truncate" style="color: var(--tm-text-muted)">({{ hop.host }}:{{ hop.port }})</span>
-                  <button
-                    v-if="hop.id === form.proxyId"
-                    class="ml-auto shrink-0 p-0.5 rounded opacity-60 hover:opacity-100 hover:bg-red-500/20 transition-all"
-                    style="color: var(--tm-text-muted)"
-                    @click="removeChainHop(hop.id)"
-                  >
-                    <el-icon :size="12"><Close /></el-icon>
-                  </button>
-                </div>
-                <!-- Target -->
-                <div
-                  class="flex items-center gap-2 px-2 py-1.5 rounded"
-                  style="background: var(--tm-bg-elevated)"
-                >
-                  <span class="text-[10px] font-mono shrink-0" style="color: var(--tm-text-muted)">{{ connectionChain.length + 1 }}</span>
-                  <span class="text-[10px] shrink-0" style="color: var(--tm-text-muted)">➜</span>
-                  <span class="truncate font-medium" style="color: #10b981">{{ form.host || 'target' }}</span>
-                  <span class="text-[10px]" style="color: var(--tm-text-muted)">({{ t('connection.bastion').includes('Jump') ? 'Target' : '目标' }})</span>
-                </div>
-              </div>
+      <!-- Tab 3: Proxy — add multiple proxies -->
+      <el-tab-pane name="proxy" :label="t('connection.proxy')">
+        <el-form label-position="top" size="default">
+          <el-form-item :label="t('connection.networkProxy')">
+            <div class="flex gap-2 w-full">
+              <el-select
+                v-model="proxySelect"
+                :placeholder="t('connection.proxyNone')"
+                class="flex-1"
+                @change="onProxyChange"
+              >
+                <el-option
+                  v-for="proxy in proxyStore.proxies"
+                  :key="proxy.id"
+                  :label="`${proxy.name} (${proxy.proxyType.toUpperCase()}, ${proxy.host}:${proxy.port})`"
+                  :value="proxy.id"
+                  :disabled="usedProxyIds.has(proxy.id)"
+                />
+              </el-select>
+              <el-button :icon="Plus" @click="startAddProxy" />
             </div>
-            <div v-else style="color: var(--tm-text-secondary)">
-              {{ t('connection.noProxyConfigured') }}
+          </el-form-item>
+
+          <!-- Inline quick-add proxy form -->
+          <div
+            v-if="addingProxy"
+            class="p-3 rounded mb-3 space-y-2"
+            style="background: var(--tm-bg-hover); border: 1px solid var(--tm-border)"
+          >
+            <div class="flex gap-2">
+              <el-input v-model="proxyForm.name" size="small" :placeholder="t('connection.proxyName')" class="flex-1" />
+              <el-select v-model="proxyForm.proxyType" size="small" class="w-36" @change="onProxyTypeChange">
+                <el-option v-for="pt in proxyTypeOptions" :key="pt.value" :label="pt.label" :value="pt.value" />
+              </el-select>
+            </div>
+            <div class="flex gap-2">
+              <el-input v-model="proxyForm.host" size="small" :placeholder="t('connection.proxyHost')" class="flex-1" />
+              <el-input-number v-model="proxyForm.port" size="small" :min="1" :max="65535" controls-position="right" class="w-24" />
+            </div>
+            <div class="flex gap-2">
+              <el-input v-model="proxyForm.username" size="small" :placeholder="t('connection.proxyUsername')" class="flex-1" />
+              <el-input v-model="proxyForm.password" size="small" type="password" show-password :placeholder="t('connection.proxyPassword')" class="flex-1" />
+            </div>
+            <template v-if="proxyForm.proxyType === 'http'">
+              <div class="flex items-center gap-3 pt-1">
+                <el-checkbox v-model="proxyForm.tlsEnabled" size="small">{{ t("connection.proxyTlsEnable") }}</el-checkbox>
+                <el-checkbox v-model="proxyForm.tlsVerify" size="small" :disabled="!proxyForm.tlsEnabled">{{ t("connection.proxyTlsVerify") }}</el-checkbox>
+              </div>
+              <template v-if="proxyForm.tlsEnabled">
+                <el-input v-model="proxyForm.caCertPath" size="small" :placeholder="t('connection.proxyCaCert')" />
+                <el-input v-model="proxyForm.clientCertPath" size="small" :placeholder="t('connection.proxyClientCert')" />
+                <el-input v-model="proxyForm.clientKeyPath" size="small" :placeholder="t('connection.proxyClientKey')" />
+              </template>
+            </template>
+            <div class="flex justify-end gap-2">
+              <el-button size="small" @click="addingProxy = false">{{ t("connection.cancel") }}</el-button>
+              <el-button size="small" type="primary" @click="saveQuickProxy">{{ t("connection.save") }}</el-button>
             </div>
           </div>
         </el-form>
       </el-tab-pane>
     </el-tabs>
 
+    <!-- Shared Connection Path (visible across all tabs) -->
+    <div
+      v-if="chain.length > 0"
+      class="px-3 py-2 rounded text-xs mt-3"
+      style="background: var(--tm-bg-hover)"
+    >
+      <div class="font-semibold mb-2" style="color: var(--tm-text-secondary)">{{ t('connection.connectionPath') }}:</div>
+      <div class="space-y-1">
+        <!-- Client (fixed, not draggable) -->
+        <div class="flex items-center gap-2 px-2 py-1.5 rounded" style="background: var(--tm-bg-elevated)">
+          <span class="text-[10px] font-mono shrink-0" style="color: var(--tm-text-muted)">1</span>
+          <span class="text-[10px] shrink-0" style="color: var(--tm-text-muted)">&#x27A4;</span>
+          <span style="color: var(--tm-text-primary)">Client</span>
+        </div>
+        <!-- Intermediate hops (draggable to reorder) -->
+        <div
+          v-for="(hop, idx) in connectionPath"
+          :key="`${chain[idx].type}-${chain[idx].id}`"
+          :data-hop-idx="idx"
+          class="flex items-center gap-2 px-2 py-1.5 rounded group transition-colors select-none"
+          :class="[
+            dragOverIdx === idx && dragIdx !== idx ? 'ring-1 ring-primary-500/50' : '',
+            dragIdx === idx ? 'opacity-50' : '',
+          ]"
+          :style="{ background: 'var(--tm-bg-elevated)', cursor: chain.length > 1 ? 'grab' : undefined }"
+          @mousedown="onHopMouseDown(idx, $event)"
+        >
+          <span class="text-[10px] font-mono shrink-0" style="color: var(--tm-text-muted)">{{ idx + 2 }}</span>
+          <!-- Type icon: globe for proxy, connection for bastion -->
+          <svg v-if="hop.type === 'proxy'" class="shrink-0" width="11" height="11" viewBox="0 0 24 24" fill="none" :stroke="hop.color" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <ellipse cx="12" cy="12" rx="4" ry="10" />
+            <path d="M2 12h20" />
+          </svg>
+          <el-icon v-else :size="11" class="shrink-0" :style="{ color: hop.color }">
+            <Connection />
+          </el-icon>
+          <span class="truncate" :style="{ color: hop.color }">{{ hop.label }}</span>
+          <span class="text-[10px] truncate" style="color: var(--tm-text-muted)">({{ hop.detail }})</span>
+          <!-- Remove button (always right-aligned) -->
+          <button
+            class="ml-auto shrink-0 p-0.5 rounded opacity-0 group-hover:opacity-70 hover:!opacity-100 hover:!bg-red-500/20 transition-all"
+            style="color: var(--tm-text-muted)"
+            @click="removeHop(idx)"
+          >
+            <el-icon :size="11"><Close /></el-icon>
+          </button>
+        </div>
+        <!-- Target (fixed, not draggable) -->
+        <div class="flex items-center gap-2 px-2 py-1.5 rounded" style="background: var(--tm-bg-elevated)">
+          <span class="text-[10px] font-mono shrink-0" style="color: var(--tm-text-muted)">{{ chain.length + 2 }}</span>
+          <span class="text-[10px] shrink-0" style="color: var(--tm-text-muted)">&#x27A4;</span>
+          <span class="truncate font-medium" style="color: #10b981">{{ form.host || 'target' }}</span>
+          <span class="text-[10px]" style="color: var(--tm-text-muted)">(Target)</span>
+        </div>
+      </div>
+    </div>
+
     <template #footer>
       <div>
-        <!-- Test result -->
         <div
           v-if="testResult"
           class="text-xs px-2 py-1.5 rounded mb-2"

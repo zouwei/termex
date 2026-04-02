@@ -25,6 +25,7 @@ pub struct ServerInput {
     pub passphrase: Option<String>,
     pub group_id: Option<String>,
     pub proxy_id: Option<String>,
+    pub network_proxy_id: Option<String>,
     pub startup_cmd: Option<String>,
     #[serde(default = "default_encoding")]
     pub encoding: String,
@@ -77,7 +78,7 @@ pub fn server_list(state: State<'_, AppState>) -> Result<Vec<Server>, String> {
             let mut stmt = conn.prepare(
                 "SELECT id, name, host, port, username, auth_type, password_enc, key_path,
                         passphrase_enc, group_id, sort_order, proxy_id, startup_cmd,
-                        encoding, tags, last_connected, created_at, updated_at
+                        encoding, tags, last_connected, created_at, updated_at, network_proxy_id
                  FROM servers ORDER BY sort_order, name",
             )?;
             let rows = stmt
@@ -101,6 +102,7 @@ pub fn server_list(state: State<'_, AppState>) -> Result<Vec<Server>, String> {
                         group_id: row.get(9)?,
                         sort_order: row.get(10)?,
                         proxy_id: row.get(11)?,
+                        network_proxy_id: row.get(18)?,
                         startup_cmd: row.get(12)?,
                         encoding: row.get(13)?,
                         tags,
@@ -146,8 +148,8 @@ pub fn server_create(
                 "INSERT INTO servers (id, name, host, port, username, auth_type,
                     password_enc, password_keychain_id, key_path,
                     passphrase_enc, passphrase_keychain_id, group_id, sort_order,
-                    proxy_id, startup_cmd, encoding, tags, created_at, updated_at)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19)",
+                    proxy_id, network_proxy_id, startup_cmd, encoding, tags, created_at, updated_at)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20)",
                 rusqlite::params![
                     id,
                     input.name,
@@ -163,6 +165,7 @@ pub fn server_create(
                     input.group_id,
                     0,
                     input.proxy_id,
+                    input.network_proxy_id,
                     input.startup_cmd,
                     input.encoding,
                     tags_json,
@@ -187,6 +190,7 @@ pub fn server_create(
         group_id: input.group_id,
         sort_order: 0,
         proxy_id: input.proxy_id,
+        network_proxy_id: input.network_proxy_id,
         startup_cmd: input.startup_cmd,
         encoding: input.encoding,
         tags: input.tags,
@@ -230,8 +234,9 @@ pub fn server_update(
                     passphrase_enc=COALESCE(?9, passphrase_enc),
                     passphrase_keychain_id=COALESCE(?10, passphrase_keychain_id),
                     group_id=?11,
-                    proxy_id=?12, startup_cmd=?13, encoding=?14, tags=?15, updated_at=?16
-                 WHERE id=?17",
+                    proxy_id=?12, network_proxy_id=?13,
+                    startup_cmd=?14, encoding=?15, tags=?16, updated_at=?17
+                 WHERE id=?18",
                 rusqlite::params![
                     input.name,
                     input.host,
@@ -245,6 +250,7 @@ pub fn server_update(
                     pp.keychain_id,
                     input.group_id,
                     input.proxy_id,
+                    input.network_proxy_id,
                     input.startup_cmd,
                     input.encoding,
                     tags_json,
@@ -272,6 +278,7 @@ pub fn server_update(
         group_id: input.group_id,
         sort_order: 0,
         proxy_id: input.proxy_id,
+        network_proxy_id: input.network_proxy_id,
         startup_cmd: input.startup_cmd,
         encoding: input.encoding,
         tags: input.tags,

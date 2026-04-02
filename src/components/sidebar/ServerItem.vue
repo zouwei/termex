@@ -5,6 +5,7 @@ import { ElMessageBox } from "element-plus";
 import { Monitor } from "@element-plus/icons-vue";
 import { useServerStore } from "@/stores/serverStore";
 import type { Server, ServerInput } from "@/types/server";
+import { tauriInvoke } from "@/utils/tauri";
 import ContextMenu from "./ContextMenu.vue";
 import type { MenuItem } from "./ContextMenu.vue";
 
@@ -92,6 +93,7 @@ const ctxItems = computed<MenuItem[]>(() => {
   const items: MenuItem[] = [
     { label: t("context.connect"), action: "connect" },
     { label: t("context.edit"), action: "edit" },
+    { label: t("context.duplicate"), action: "duplicate" },
     { label: t("context.rename"), action: "rename" },
   ];
 
@@ -167,6 +169,23 @@ async function onCtxSelect(action: string) {
     emit("connect", props.server);
   } else if (action === "edit") {
     emit("edit", props.server);
+  } else if (action === "duplicate") {
+    // Fetch decrypted credentials so the copy includes password/passphrase
+    let password = "";
+    let passphrase = "";
+    try {
+      const creds = await tauriInvoke<{ password: string; passphrase: string }>(
+        "server_get_credentials",
+        { id: props.server.id },
+      );
+      password = creds.password;
+      passphrase = creds.passphrase;
+    } catch { /* credentials unavailable, proceed without */ }
+    await serverStore.createServer(toInput({
+      name: `${props.server.name} (copy)`,
+      password,
+      passphrase,
+    }));
   } else if (action === "rename") {
     startRename();
   } else if (action === "ungroup") {

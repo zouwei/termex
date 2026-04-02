@@ -69,10 +69,38 @@ pub struct Server {
     pub group_id: Option<String>,
     pub sort_order: i32,
     pub proxy_id: Option<String>,
+    pub network_proxy_id: Option<String>,
     pub startup_cmd: Option<String>,
     pub encoding: String,
     pub tags: Vec<String>,
     pub last_connected: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+// ============================================================
+// Network Proxy
+// ============================================================
+
+/// A network proxy configuration (SOCKS5 / SOCKS4 / HTTP CONNECT).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Proxy {
+    pub id: String,
+    pub name: String,
+    pub proxy_type: String,
+    pub host: String,
+    pub port: i32,
+    pub username: Option<String>,
+    /// Encrypted password bytes — never sent to frontend.
+    #[serde(skip_serializing)]
+    pub password_enc: Option<Vec<u8>>,
+    pub password_keychain_id: Option<String>,
+    pub tls_enabled: bool,
+    pub tls_verify: bool,
+    pub ca_cert_path: Option<String>,
+    pub client_cert_path: Option<String>,
+    pub client_key_path: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }

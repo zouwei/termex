@@ -8,6 +8,8 @@ const MIGRATIONS: &[(i32, &str, &str)] = &[
     (3, "keychain credential storage", ""),
     (4, "keychain verification tracking", ""),
     (5, "local model integration", ""),
+    (6, "network proxy support", MIGRATION_V6),
+    (7, "proxy TLS support", ""),
 ];
 
 /// Runs all pending migrations in order.
@@ -55,6 +57,18 @@ pub fn run_migrations(conn: &Connection) -> Result<(), rusqlite::Error> {
                 // Migration v5: local model integration
                 // Add local_model_id column to ai_providers for associating local models
                 add_column_if_missing(conn, "ai_providers", "local_model_id", "TEXT");
+            }
+            if version == 6 {
+                // Migration v6: network proxy support
+                add_column_if_missing(conn, "servers", "network_proxy_id", "TEXT");
+            }
+            if version == 7 {
+                // Migration v7: proxy TLS support (columns may already exist if v6 ran with new schema)
+                add_column_if_missing(conn, "proxies", "tls_enabled", "INTEGER DEFAULT 0");
+                add_column_if_missing(conn, "proxies", "tls_verify", "INTEGER DEFAULT 1");
+                add_column_if_missing(conn, "proxies", "ca_cert_path", "TEXT");
+                add_column_if_missing(conn, "proxies", "client_cert_path", "TEXT");
+                add_column_if_missing(conn, "proxies", "client_key_path", "TEXT");
             }
             conn.execute(
                 "INSERT INTO _migrations (version, description, applied_at) VALUES (?1, ?2, ?3)",
@@ -183,6 +197,30 @@ CREATE INDEX idx_port_forwards_server ON port_forwards(server_id);
 CREATE INDEX idx_ai_providers_default ON ai_providers(is_default);
 ";
 
+
+// ============================================================
+// V6: Network proxy support
+// ============================================================
+
+const MIGRATION_V6: &str = "
+CREATE TABLE IF NOT EXISTS proxies (
+    id                      TEXT PRIMARY KEY,
+    name                    TEXT NOT NULL,
+    proxy_type              TEXT NOT NULL,
+    host                    TEXT NOT NULL,
+    port                    INTEGER NOT NULL,
+    username                TEXT,
+    password_enc            BLOB,
+    password_keychain_id    TEXT,
+    tls_enabled             INTEGER DEFAULT 0,
+    tls_verify              INTEGER DEFAULT 1,
+    ca_cert_path            TEXT,
+    client_cert_path        TEXT,
+    client_key_path         TEXT,
+    created_at              TEXT NOT NULL,
+    updated_at              TEXT NOT NULL
+);
+";
 
 /// Adds a column to a table if it doesn't already exist (idempotent).
 fn add_column_if_missing(conn: &Connection, table: &str, column: &str, col_type: &str) {

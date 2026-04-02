@@ -136,6 +136,7 @@ export const useSettingsStore = defineStore("settings", () => {
   const terminalTheme = ref("termex-dark");
   const keywordRules = ref<KeywordRule[]>([]);
   const keybindings = ref<KeybindingMap>({ ...DEFAULT_KEYBINDINGS });
+  const sidebarTransition = ref<string>("flip");
 
   // ── Actions ────────────────────────────────────────────────
 
@@ -188,6 +189,9 @@ export const useSettingsStore = defineStore("settings", () => {
           } catch {
             keybindings.value = { ...DEFAULT_KEYBINDINGS };
           }
+          break;
+        case "sidebarTransition":
+          sidebarTransition.value = value;
           break;
       }
     }
@@ -376,6 +380,7 @@ export const useSettingsStore = defineStore("settings", () => {
   watch(scrollbackLines, (v) => set("scrollbackLines", String(v)));
   watch(terminalTheme, (v) => set("terminalTheme", v));
   watch(keywordRules, (v) => set("keyword_highlight_rules", JSON.stringify(v)), { deep: true });
+  watch(sidebarTransition, (v) => set("sidebarTransition", v));
 
   return {
     theme,
@@ -390,6 +395,7 @@ export const useSettingsStore = defineStore("settings", () => {
     terminalTheme,
     keywordRules,
     keybindings,
+    sidebarTransition,
     loadAll,
     set,
     applyTheme,

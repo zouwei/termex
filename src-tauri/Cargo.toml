@@ -1,6 +1,6 @@
 [package]
 name = "termex"
-version = "0.17.1"
+version = "0.18.0"
 description = "Open-source AI-native SSH client"
 authors = ["Termex Contributors"]
 edition = "2021"
@@ -41,6 +41,10 @@ hex = "0.4"
 open = "5"
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 rfd = "0.17.2"
+tokio-socks = "0.5"
+tokio-rustls = { version = "0.26", features = ["ring"] }
+rustls-pemfile = "2"
+webpki-roots = "0.26"
 
 [profile.dev]
 incremental = true

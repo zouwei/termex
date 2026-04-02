@@ -20,6 +20,7 @@ export interface Server {
   groupId: string | null;
   sortOrder: number;
   proxyId?: string;
+  networkProxyId?: string;
   startupCmd?: string;
   encoding: string;
   tags: string[];
@@ -40,6 +41,7 @@ export interface ServerInput {
   passphrase?: string;
   groupId?: string | null;
   proxyId?: string | null;
+  networkProxyId?: string | null;
   startupCmd?: string;
   encoding?: string;
   tags?: string[];

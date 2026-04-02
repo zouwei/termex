@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod channel;
 pub mod forward;
+pub mod proxy;
 pub mod session;
 
 /// SSH error types.
@@ -35,4 +36,7 @@ pub enum SshError {
 
     #[error("crypto error: {0}")]
     Crypto(String),
+
+    #[error("proxy connection failed: {0}")]
+    ProxyFailed(String),
 }

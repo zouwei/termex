@@ -2,6 +2,7 @@ use tauri::{AppHandle, Emitter, State};
 
 use crate::crypto::aes;
 use crate::keychain;
+use crate::ssh::proxy::{ProxyConfig, ProxyTlsConfig, ProxyType};
 use crate::ssh::session::SshSession;
 use crate::ssh::{auth, SshError};
 use crate::state::AppState;
@@ -19,12 +20,12 @@ pub async fn ssh_connect(
     let session_id = uuid::Uuid::new_v4().to_string();
     let status_event = format!("ssh://status/{session_id}");
 
-    // Load server details from database (including proxy_id for bastion support)
+    // Load server details from database (including proxy_id and network_proxy_id)
     let server = state
         .db
         .with_conn(|conn| {
             conn.query_row(
-                "SELECT host, port, username, auth_type, password_enc, key_path, passphrase_enc, proxy_id
+                "SELECT host, port, username, auth_type, password_enc, key_path, passphrase_enc, proxy_id, network_proxy_id
                  FROM servers WHERE id = ?1",
                 rusqlite::params![server_id],
                 |row| {
@@ -37,6 +38,7 @@ pub async fn ssh_connect(
                         key_path: row.get(5)?,
                         passphrase_enc: row.get(6)?,
                         proxy_id: row.get(7)?,
+                        network_proxy_id: row.get(8)?,
                         server_id: server_id.clone(),
                     })
                 },
@@ -50,148 +52,168 @@ pub async fn ssh_connect(
         serde_json::json!({"status": "connecting", "message": "connecting..."}),
     );
 
-    // Handle ProxyJump (bastion host support)
+    // Resolve network proxy config if configured
+    let network_proxy = if let Some(ref np_id) = server.network_proxy_id {
+        let proxy_record = crate::storage::proxies::get(&state.db, np_id)
+            .map_err(|e| {
+                let err = SshError::ProxyFailed(format!("Failed to load network proxy: {}", e));
+                emit_error(&app, &status_event, &err)
+            })?;
+        let proxy_type = ProxyType::from_str(&proxy_record.proxy_type)
+            .ok_or_else(|| {
+                let err = SshError::ProxyFailed(format!("Unknown proxy type: {}", proxy_record.proxy_type));
+                emit_error(&app, &status_event, &err)
+            })?;
+        // Resolve proxy password
+        let proxy_password = keychain::get(&crate::commands::proxy::proxy_password_key(np_id))
+            .ok()
+            .or_else(|| {
+                proxy_record.password_enc.and_then(|enc| {
+                    decrypt_field(&state, Some(enc)).ok().filter(|s| !s.is_empty())
+                })
+            });
+        Some(ProxyConfig {
+            proxy_type,
+            host: proxy_record.host,
+            port: proxy_record.port as u16,
+            username: proxy_record.username,
+            password: proxy_password,
+            tls: ProxyTlsConfig {
+                enabled: proxy_record.tls_enabled,
+                verify: proxy_record.tls_verify,
+                ca_cert_path: proxy_record.ca_cert_path,
+                client_cert_path: proxy_record.client_cert_path,
+                client_key_path: proxy_record.client_key_path,
+            },
+        })
+    } else {
+        None
+    };
+
+    // 4-branch connection logic: (network_proxy, bastion)
     let mut ssh_session;
     let mut proxy_chain = Vec::new();
 
-    if let Some(bastion_id) = &server.proxy_id {
-        // Connect via bastion: load bastion server details
-        let _ = app.emit(
-            &status_event,
-            serde_json::json!({"status": "connecting", "message": "connecting to bastion..."}),
-        );
+    match (&network_proxy, &server.proxy_id) {
+        // Branch 1: Network proxy + bastion
+        (Some(np), Some(bastion_id)) => {
+            let _ = app.emit(&status_event, serde_json::json!({"status": "connecting", "message": "connecting via proxy to bastion..."}));
 
-        let bastion_info = state
-            .db
-            .with_conn(|conn| {
-                conn.query_row(
-                    "SELECT host, port, username, auth_type, password_enc, key_path, passphrase_enc
-                     FROM servers WHERE id = ?1",
-                    rusqlite::params![bastion_id],
-                    |row| {
-                        Ok(ServerInfo {
-                            host: row.get(0)?,
-                            port: row.get(1)?,
-                            username: row.get(2)?,
-                            auth_type: row.get(3)?,
-                            password_enc: row.get(4)?,
-                            key_path: row.get(5)?,
-                            passphrase_enc: row.get(6)?,
-                            proxy_id: None,
-                            server_id: bastion_id.clone(),
-                        })
-                    },
-                )
-            })
-            .map_err(|e| {
-                let err = SshError::ServerNotFound(format!("Failed to load bastion server: {}", e));
-                emit_error(&app, &status_event, &err)
-            })?;
+            let bastion_info = load_bastion_info(&state, bastion_id, &app, &status_event)?;
 
-        // Connect to bastion (check if already in pool)
-        {
-            let mut proxy_sessions = state.proxy_sessions.write().await;
-            if proxy_sessions.contains_key(bastion_id) {
-                // Bastion already connected, reuse and increment ref_count
-                if let Some(entry) = proxy_sessions.get_mut(bastion_id) {
-                    entry.ref_count += 1;
-                    eprintln!(">>> [PROXY] Reusing bastion connection: {} (ref_count: {})", bastion_id, entry.ref_count);
-                }
-            } else {
-                // First time: connect to bastion
-                let mut bastion_session = tokio::time::timeout(
-                    std::time::Duration::from_secs(10),
-                    SshSession::connect(&bastion_info.host, bastion_info.port as u16),
-                )
-                .await
-                .map_err(|_| {
-                    let err = SshError::ConnectionFailed("bastion connection timed out (10s)".into());
-                    emit_error(&app, &status_event, &err)
-                })?
-                .map_err(|e| emit_error(&app, &status_event, &e))?;
-
-                // Authenticate bastion
-                let bastion_auth_type = AuthType::from_str(&bastion_info.auth_type)
-                    .unwrap_or(AuthType::Password);
-                match bastion_auth_type {
-                    AuthType::Password => {
-                        let password = keychain::get(&keychain::ssh_password_key(&bastion_info.server_id))
-                            .unwrap_or_else(|_| decrypt_field(&state, bastion_info.password_enc).unwrap_or_default());
-                        auth::auth_password(bastion_session.handle_mut(), &bastion_info.username, &password)
-                            .await
-                            .map_err(|e| emit_error(&app, &status_event, &SshError::AuthFailed(format!("Bastion auth failed: {}", e))))?;
+            {
+                let mut proxy_sessions = state.proxy_sessions.write().await;
+                if proxy_sessions.contains_key(bastion_id) {
+                    if let Some(entry) = proxy_sessions.get_mut(bastion_id) {
+                        entry.ref_count += 1;
                     }
-                    AuthType::Key => {
-                        let key_path = bastion_info
-                            .key_path
-                            .as_deref()
-                            .ok_or_else(|| emit_error(&app, &status_event, &SshError::AuthFailed("bastion: no key path configured".into())))?;
-                        let passphrase = keychain::get(&keychain::ssh_passphrase_key(&bastion_info.server_id))
-                            .ok()
-                            .or_else(|| {
-                                bastion_info.passphrase_enc.and_then(|enc| {
-                                    decrypt_field(&state, Some(enc)).ok().filter(|s| !s.is_empty())
-                                })
-                            });
-                        auth::auth_key(
-                            bastion_session.handle_mut(),
-                            &bastion_info.username,
-                            key_path,
-                            passphrase.as_deref(),
-                        )
-                        .await
-                        .map_err(|e| emit_error(&app, &status_event, &SshError::AuthFailed(format!("Bastion auth failed: {}", e))))?;
-                    }
-                }
+                } else {
+                    let mut bastion_session = tokio::time::timeout(
+                        std::time::Duration::from_secs(15),
+                        SshSession::connect_via_network_proxy(np, &bastion_info.host, bastion_info.port as u16),
+                    )
+                    .await
+                    .map_err(|_| emit_error(&app, &status_event, &SshError::ConnectionFailed("proxy→bastion timed out (15s)".into())))?
+                    .map_err(|e| emit_error(&app, &status_event, &e))?;
 
-                proxy_sessions.insert(bastion_id.clone(), crate::state::ProxyEntry {
-                    session: Box::new(bastion_session),
-                    ref_count: 1,
-                });
-                eprintln!(">>> [PROXY] New bastion connection established: {}", bastion_id);
+                    auth_server(&state, &app, &status_event, &mut bastion_session, &bastion_info, "Bastion").await?;
+
+                    proxy_sessions.insert(bastion_id.clone(), crate::state::ProxyEntry {
+                        session: Box::new(bastion_session),
+                        ref_count: 1,
+                    });
+                }
             }
+
+            let _ = app.emit(&status_event, serde_json::json!({"status": "connecting", "message": "connecting via bastion to target..."}));
+
+            let proxy_sessions = state.proxy_sessions.read().await;
+            let bastion_entry = proxy_sessions.get(bastion_id)
+                .ok_or_else(|| emit_error(&app, &status_event, &SshError::ConnectionFailed("bastion session not found in pool".into())))?;
+
+            ssh_session = tokio::time::timeout(
+                std::time::Duration::from_secs(10),
+                SshSession::connect_via_proxy(bastion_entry.session.handle(), &server.host, server.port as u16),
+            )
+            .await
+            .map_err(|_| emit_error(&app, &status_event, &SshError::ConnectionFailed("target via bastion timed out (10s)".into())))?
+            .map_err(|e| emit_error(&app, &status_event, &e))?;
+
+            drop(proxy_sessions);
+            proxy_chain.push(bastion_id.clone());
         }
 
-        // Connect to target via bastion (direct-tcpip)
-        let _ = app.emit(
-            &status_event,
-            serde_json::json!({"status": "connecting", "message": "connecting via bastion to target..."}),
-        );
+        // Branch 2: Network proxy only (no bastion)
+        (Some(np), None) => {
+            let _ = app.emit(&status_event, serde_json::json!({"status": "connecting", "message": "connecting via proxy..."}));
 
-        // Get bastion handle for direct-tcpip (need to temporarily borrow it)
-        let proxy_sessions = state.proxy_sessions.read().await;
-        let bastion_entry = proxy_sessions.get(bastion_id)
-            .ok_or_else(|| {
-                let err = SshError::ConnectionFailed("bastion session not found in pool".into());
-                emit_error(&app, &status_event, &err)
-            })?;
-        let bastion_handle = bastion_entry.session.handle();
+            ssh_session = tokio::time::timeout(
+                std::time::Duration::from_secs(15),
+                SshSession::connect_via_network_proxy(np, &server.host, server.port as u16),
+            )
+            .await
+            .map_err(|_| emit_error(&app, &status_event, &SshError::ConnectionFailed("proxy connection timed out (15s)".into())))?
+            .map_err(|e| emit_error(&app, &status_event, &e))?;
+        }
 
-        ssh_session = tokio::time::timeout(
-            std::time::Duration::from_secs(10),
-            SshSession::connect_via_proxy(&bastion_handle, &server.host, server.port as u16),
-        )
-        .await
-        .map_err(|_| {
-            let err = SshError::ConnectionFailed("target connection timed out (10s)".into());
-            emit_error(&app, &status_event, &err)
-        })?
-        .map_err(|e| emit_error(&app, &status_event, &e))?;
+        // Branch 3: Bastion only (existing ProxyJump, no network proxy)
+        (None, Some(bastion_id)) => {
+            let _ = app.emit(&status_event, serde_json::json!({"status": "connecting", "message": "connecting to bastion..."}));
 
-        drop(proxy_sessions); // Release the read lock
-        proxy_chain.push(bastion_id.clone());
-    } else {
-        // Direct connection (no bastion)
-        ssh_session = tokio::time::timeout(
-            std::time::Duration::from_secs(10),
-            SshSession::connect(&server.host, server.port as u16),
-        )
-        .await
-        .map_err(|_| {
-            let err = SshError::ConnectionFailed("connection timed out (10s)".into());
-            emit_error(&app, &status_event, &err)
-        })?
-        .map_err(|e| emit_error(&app, &status_event, &e))?;
+            let bastion_info = load_bastion_info(&state, bastion_id, &app, &status_event)?;
+
+            {
+                let mut proxy_sessions = state.proxy_sessions.write().await;
+                if proxy_sessions.contains_key(bastion_id) {
+                    if let Some(entry) = proxy_sessions.get_mut(bastion_id) {
+                        entry.ref_count += 1;
+                    }
+                } else {
+                    let mut bastion_session = tokio::time::timeout(
+                        std::time::Duration::from_secs(10),
+                        SshSession::connect(&bastion_info.host, bastion_info.port as u16),
+                    )
+                    .await
+                    .map_err(|_| emit_error(&app, &status_event, &SshError::ConnectionFailed("bastion connection timed out (10s)".into())))?
+                    .map_err(|e| emit_error(&app, &status_event, &e))?;
+
+                    auth_server(&state, &app, &status_event, &mut bastion_session, &bastion_info, "Bastion").await?;
+
+                    proxy_sessions.insert(bastion_id.clone(), crate::state::ProxyEntry {
+                        session: Box::new(bastion_session),
+                        ref_count: 1,
+                    });
+                }
+            }
+
+            let _ = app.emit(&status_event, serde_json::json!({"status": "connecting", "message": "connecting via bastion to target..."}));
+
+            let proxy_sessions = state.proxy_sessions.read().await;
+            let bastion_entry = proxy_sessions.get(bastion_id)
+                .ok_or_else(|| emit_error(&app, &status_event, &SshError::ConnectionFailed("bastion session not found in pool".into())))?;
+
+            ssh_session = tokio::time::timeout(
+                std::time::Duration::from_secs(10),
+                SshSession::connect_via_proxy(bastion_entry.session.handle(), &server.host, server.port as u16),
+            )
+            .await
+            .map_err(|_| emit_error(&app, &status_event, &SshError::ConnectionFailed("target via bastion timed out (10s)".into())))?
+            .map_err(|e| emit_error(&app, &status_event, &e))?;
+
+            drop(proxy_sessions);
+            proxy_chain.push(bastion_id.clone());
+        }
+
+        // Branch 4: Direct connection (no proxy, no bastion)
+        (None, None) => {
+            ssh_session = tokio::time::timeout(
+                std::time::Duration::from_secs(10),
+                SshSession::connect(&server.host, server.port as u16),
+            )
+            .await
+            .map_err(|_| emit_error(&app, &status_event, &SshError::ConnectionFailed("connection timed out (10s)".into())))?
+            .map_err(|e| emit_error(&app, &status_event, &e))?;
+        }
     }
 
     // Authenticate target server
@@ -422,6 +444,79 @@ struct ServerInfo {
     key_path: Option<String>,
     passphrase_enc: Option<Vec<u8>>,
     proxy_id: Option<String>,
+    network_proxy_id: Option<String>,
+}
+
+/// Loads bastion server info from database.
+fn load_bastion_info(
+    state: &State<'_, AppState>,
+    bastion_id: &str,
+    app: &AppHandle,
+    status_event: &str,
+) -> Result<ServerInfo, String> {
+    state
+        .db
+        .with_conn(|conn| {
+            conn.query_row(
+                "SELECT host, port, username, auth_type, password_enc, key_path, passphrase_enc
+                 FROM servers WHERE id = ?1",
+                rusqlite::params![bastion_id],
+                |row| {
+                    Ok(ServerInfo {
+                        host: row.get(0)?,
+                        port: row.get(1)?,
+                        username: row.get(2)?,
+                        auth_type: row.get(3)?,
+                        password_enc: row.get(4)?,
+                        key_path: row.get(5)?,
+                        passphrase_enc: row.get(6)?,
+                        proxy_id: None,
+                        network_proxy_id: None,
+                        server_id: bastion_id.to_string(),
+                    })
+                },
+            )
+        })
+        .map_err(|e| {
+            let err = SshError::ServerNotFound(format!("Failed to load bastion server: {}", e));
+            emit_error(app, status_event, &err)
+        })
+}
+
+/// Authenticates an SSH session using server info credentials.
+async fn auth_server(
+    state: &State<'_, AppState>,
+    app: &AppHandle,
+    status_event: &str,
+    session: &mut SshSession,
+    info: &ServerInfo,
+    label: &str,
+) -> Result<(), String> {
+    let auth_type = AuthType::from_str(&info.auth_type).unwrap_or(AuthType::Password);
+    match auth_type {
+        AuthType::Password => {
+            let password = keychain::get(&keychain::ssh_password_key(&info.server_id))
+                .unwrap_or_else(|_| decrypt_field(state, info.password_enc.clone()).unwrap_or_default());
+            auth::auth_password(session.handle_mut(), &info.username, &password)
+                .await
+                .map_err(|e| emit_error(app, status_event, &SshError::AuthFailed(format!("{} auth failed: {}", label, e))))?;
+        }
+        AuthType::Key => {
+            let key_path = info.key_path.as_deref()
+                .ok_or_else(|| emit_error(app, status_event, &SshError::AuthFailed(format!("{}: no key path configured", label))))?;
+            let passphrase = keychain::get(&keychain::ssh_passphrase_key(&info.server_id))
+                .ok()
+                .or_else(|| {
+                    info.passphrase_enc.clone().and_then(|enc| {
+                        decrypt_field(state, Some(enc)).ok().filter(|s| !s.is_empty())
+                    })
+                });
+            auth::auth_key(session.handle_mut(), &info.username, key_path, passphrase.as_deref())
+                .await
+                .map_err(|e| emit_error(app, status_event, &SshError::AuthFailed(format!("{} auth failed: {}", label, e))))?;
+        }
+    }
+    Ok(())
 }
 
 /// Emits an error status event and returns the error string.
@@ -475,7 +570,7 @@ fn resolve_proxy_chain(
             .db
             .with_conn(|conn| {
                 conn.query_row(
-                    "SELECT id, host, port, username, auth_type, password_enc, key_path, passphrase_enc, proxy_id
+                    "SELECT id, host, port, username, auth_type, password_enc, key_path, passphrase_enc, proxy_id, network_proxy_id
                      FROM servers WHERE id = ?1",
                     rusqlite::params![current_id],
                     |row| {
@@ -489,6 +584,7 @@ fn resolve_proxy_chain(
                             key_path: row.get(6)?,
                             passphrase_enc: row.get(7)?,
                             proxy_id: row.get(8)?,
+                            network_proxy_id: row.get(9)?,
                         })
                     },
                 )

@@ -3,6 +3,7 @@
 pub mod config;
 pub mod crypto;
 pub mod port_forward;
+pub mod proxy;
 pub mod server;
 pub mod sftp;
 pub mod ssh;
