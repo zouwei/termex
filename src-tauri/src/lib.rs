@@ -322,6 +322,10 @@ pub fn run() {
             // Local filesystem
             commands::local_fs::local_home_dir,
             commands::local_fs::local_list_dir,
+            commands::local_fs::local_rename,
+            commands::local_fs::local_delete,
+            commands::local_fs::local_mkdir,
+            commands::local_fs::local_create_file,
             commands::local_fs::security_status,
             commands::local_fs::open_url,
             commands::local_fs::save_file_dialog,

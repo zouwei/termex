@@ -67,6 +67,35 @@ pub fn local_list_dir(path: String) -> Result<Vec<LocalEntry>, String> {
     Ok(entries)
 }
 
+/// Renames (moves) a local file or directory.
+#[tauri::command]
+pub fn local_rename(old_path: String, new_path: String) -> Result<(), String> {
+    std::fs::rename(&old_path, &new_path).map_err(|e| e.to_string())
+}
+
+/// Deletes a local file or directory (recursive for directories).
+#[tauri::command]
+pub fn local_delete(path: String, is_dir: bool) -> Result<(), String> {
+    if is_dir {
+        std::fs::remove_dir_all(&path).map_err(|e| e.to_string())
+    } else {
+        std::fs::remove_file(&path).map_err(|e| e.to_string())
+    }
+}
+
+/// Creates a local directory.
+#[tauri::command]
+pub fn local_mkdir(path: String) -> Result<(), String> {
+    std::fs::create_dir_all(&path).map_err(|e| e.to_string())
+}
+
+/// Creates an empty local file.
+#[tauri::command]
+pub fn local_create_file(path: String) -> Result<(), String> {
+    std::fs::File::create(&path).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Security status information.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]

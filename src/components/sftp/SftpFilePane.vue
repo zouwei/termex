@@ -129,14 +129,9 @@ const ctxY = ref(0);
 const selectedEntry = ref<FileEntry>({ name: "", isDir: false, isSymlink: false, size: 0, permissions: null, uid: null, gid: null, mtime: null });
 
 const ctxItems = computed<MenuItem[]>(() => {
-  if (paneOps.isLocal.value) {
-    return [
-      { label: t("sftp.copyPath"), action: "copyPath" },
-      { label: t("sftp.refresh"), action: "refresh" },
-    ];
-  }
   const items: MenuItem[] = [];
-  if (!selectedEntry.value.isDir) {
+  // Download only for remote files (not dirs)
+  if (paneOps.isRemote.value && !selectedEntry.value.isDir) {
     items.push({ label: t("sftp.download"), action: "download" });
   }
   items.push(
@@ -157,7 +152,7 @@ const ctxItems = computed<MenuItem[]>(() => {
         { label: t("sftp.newFile"), action: "newFile", divided: true },
         { label: t("sftp.mkdir"), action: "mkdir" },
         { label: t("sftp.refresh"), action: "refresh", divided: true },
-        { label: t("sftp.fileInfo"), action: "fileInfo" },
+        ...(paneOps.isRemote.value ? [{ label: t("sftp.fileInfo"), action: "fileInfo" }] : []),
       ],
     },
   );
@@ -315,8 +310,8 @@ const modeSelectorVisible = ref(false);
         <el-icon :size="12"><RefreshRight /></el-icon>
       </button>
 
-      <!-- New Folder (remote only) -->
-      <button v-if="paneOps.isRemote.value" class="sftp-icon-btn" @click="paneOps.handleMkdir">
+      <!-- New Folder -->
+      <button class="sftp-icon-btn" @click="paneOps.handleMkdir">
         <el-icon :size="12"><FolderAdd /></el-icon>
       </button>
 

@@ -83,9 +83,8 @@ export function useSftpPane(side: "left" | "right") {
     await ctx.listPaneDir(side, path);
   }
 
-  // ── File operations (remote only) ──
+  // ── File operations ──
   async function handleMkdir() {
-    if (!isRemote.value) return;
     try {
       const { value } = await ElMessageBox.prompt(t("sftp.newFolderPrompt"), {
         confirmButtonText: t("sftp.confirm"),
@@ -150,7 +149,6 @@ export function useSftpPane(side: "left" | "right") {
 
   // ── New file ──
   async function handleNewFile() {
-    if (!isRemote.value) return;
     try {
       const { value } = await ElMessageBox.prompt(t("sftp.newFilePrompt"), {
         confirmButtonText: t("sftp.confirm"),

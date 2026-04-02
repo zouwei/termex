@@ -1,6 +1,6 @@
 {
   "name": "termex",
-  "version": "0.19.1",
+  "version": "0.19.2",
   "description": "Open-source AI-native SSH client",
   "type": "module",
   "scripts": {
