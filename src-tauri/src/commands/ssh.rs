@@ -52,8 +52,12 @@ pub async fn ssh_connect(
         serde_json::json!({"status": "connecting", "message": "connecting..."}),
     );
 
+    // Normalize empty strings to None for proxy fields
+    let proxy_id = server.proxy_id.filter(|s| !s.is_empty());
+    let network_proxy_id = server.network_proxy_id.filter(|s| !s.is_empty());
+
     // Resolve network proxy config if configured
-    let network_proxy = if let Some(ref np_id) = server.network_proxy_id {
+    let network_proxy = if let Some(ref np_id) = network_proxy_id {
         let proxy_record = crate::storage::proxies::get(&state.db, np_id)
             .map_err(|e| {
                 let err = SshError::ProxyFailed(format!("Failed to load network proxy: {}", e));
@@ -94,7 +98,7 @@ pub async fn ssh_connect(
     let mut ssh_session;
     let mut proxy_chain = Vec::new();
 
-    match (&network_proxy, &server.proxy_id) {
+    match (&network_proxy, &proxy_id) {
         // Branch 1: Network proxy + bastion
         (Some(np), Some(bastion_id)) => {
             let _ = app.emit(&status_event, serde_json::json!({"status": "connecting", "message": "connecting via proxy to bastion..."}));

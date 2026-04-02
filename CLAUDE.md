@@ -95,6 +95,16 @@ src/                     # Vue 3 frontend
   - Master key exists only in memory, zeroed on app lock
 - Export files use independent password + salt, decoupled from keychain/master password
 
+### Keychain Single-Prompt Rule (CRITICAL)
+
+- **OS keychain 每次启动最多弹出 1 次密码提示** — 这是硬性要求，违反会严重影响用户体验
+- 所有凭据存储在**单一 keychain entry** (`__termex_store__`) 中，以 JSON 对象形式存储
+- **只有 `init()` 可以调用 `get_password()`**（读取 OS keychain）
+- **只有 `flush()` 可以调用 `set_password()`**（写入 OS keychain）
+- **其他任何函数禁止直接访问 `keyring::Entry`** — 一律通过内存缓存 `get()`/`store()`
+- 禁止创建额外的 keychain entry（无 per-server、per-provider、verification token 条目）
+- `verify_accessible()` 仅检查 `is_available()` 返回值，不执行额外的 keychain 读取
+
 ## IPC Conventions
 
 - Frontend → Backend: `invoke("module_action", { params })` (e.g., `invoke("ssh_connect", { server_id })`)

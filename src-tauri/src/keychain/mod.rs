@@ -5,9 +5,14 @@
 //! - Windows: Credential Manager (DPAPI)
 //! - Linux: Secret Service (GNOME Keyring / KDE Wallet)
 //!
-//! All credentials are stored in a **single keychain entry** as a JSON object,
-//! so the OS only prompts for the keychain password once per app session.
-//! An in-memory cache serves all reads after the initial load.
+//! **Architecture**: All credentials are stored in a **single keychain entry**
+//! as a JSON object. This guarantees at most 1 OS password prompt per app launch.
+//! An in-memory cache serves all reads; writes batch into the single entry.
+//!
+//! **CRITICAL RULE**: Only `init()` may call `keyring::Entry::get_password()`.
+//! Only `flush()` may call `keyring::Entry::set_password()`.
+//! No other function may directly access the OS keychain.
+//! This ensures the OS never prompts more than once per session.
 
 use std::collections::HashMap;
 use std::sync::{OnceLock, RwLock};
@@ -17,8 +22,6 @@ use thiserror::Error;
 const SERVICE_NAME: &str = "com.termex.app";
 /// Single keychain entry that holds all credentials as JSON.
 const STORE_KEY: &str = "__termex_store__";
-/// Verification token key used to detect OS keychain/system password changes.
-const VERIFICATION_TOKEN_KEY: &str = "__termex_verification__";
 
 #[derive(Debug, Error)]
 pub enum KeychainError {
@@ -33,21 +36,19 @@ pub enum KeychainError {
 /// Global availability flag, computed once.
 static AVAILABLE: OnceLock<bool> = OnceLock::new();
 
-/// Whether init() successfully loaded credentials (implying keychain is accessible).
-static INIT_VERIFIED: OnceLock<bool> = OnceLock::new();
-
 /// Returns a reference to the global in-memory credential cache.
 fn cache() -> &'static RwLock<HashMap<String, String>> {
     static CACHE: OnceLock<RwLock<HashMap<String, String>>> = OnceLock::new();
     CACHE.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
-/// Initializes the keychain module and creates verification token on first launch.
+/// Initializes the keychain module.
 ///
-/// Reads all credentials from the single keychain entry into memory.
-/// On first launch, creates the entry and a verification token.
+/// This is the **only** function that reads from the OS keychain.
+/// On success, all credentials are loaded into the in-memory cache.
 /// Returns whether keychain is available.
-/// **Triggers at most 1 OS password prompt per app session.**
+///
+/// **Guarantees at most 1 OS password prompt per app session.**
 pub fn init() -> bool {
     *AVAILABLE.get_or_init(|| {
         let entry = match keyring::Entry::new(SERVICE_NAME, STORE_KEY) {
@@ -56,62 +57,31 @@ pub fn init() -> bool {
         };
         match entry.get_password() {
             Ok(json_str) => {
-                // Parse and load into cache
                 if let Ok(map) = serde_json::from_str::<HashMap<String, String>>(&json_str) {
                     if let Ok(mut c) = cache().write() {
                         *c = map;
                     }
                 }
-                let _ = INIT_VERIFIED.set(true);
                 true
             }
             Err(keyring::Error::NoEntry) => {
-                // First launch: create empty store and verification token
-                if entry.set_password("{}").is_ok() {
-                    let token = uuid::Uuid::new_v4().to_string();
-                    let _ = keyring::Entry::new(SERVICE_NAME, VERIFICATION_TOKEN_KEY)
-                        .and_then(|v_entry| v_entry.set_password(&token));
-                    let _ = INIT_VERIFIED.set(true);
-                    return true;
-                }
-                false
+                // First launch: create empty store
+                entry.set_password("{}").is_ok()
             }
             Err(_) => false,
         }
     })
 }
 
-/// Verifies that the OS keychain is still accessible (detects system password changes).
+/// Verifies that the OS keychain is accessible.
 ///
-/// Attempts to read a verification token from keychain. If this fails,
-/// it indicates either:
-/// 1. First launch (no token created yet)
-/// 2. System password has changed (token became inaccessible)
-///
-/// Returns `Ok(true)` if verification succeeds or token exists and is readable.
-/// Returns `Ok(false)` if token doesn't exist (first launch).
-/// Returns `Err(...)` if keychain is unavailable or access is denied (password changed).
+/// Uses the result of `init()` — never performs additional OS keychain reads.
 pub fn verify_accessible() -> Result<bool, KeychainError> {
     if !is_available() {
         return Err(KeychainError::NotAvailable("Keychain not available".to_string()));
     }
-
-    // If init() already successfully read the keychain store, it's verified —
-    // no need for an extra keychain read that may trigger another OS password prompt.
-    if INIT_VERIFIED.get().copied().unwrap_or(false) {
-        return Ok(true);
-    }
-
-    let v_entry = keyring::Entry::new(SERVICE_NAME, VERIFICATION_TOKEN_KEY)
-        .map_err(|e| KeychainError::OperationFailed(e.to_string()))?;
-
-    match v_entry.get_password() {
-        Ok(_) => Ok(true), // Token exists and is accessible
-        Err(keyring::Error::NoEntry) => Ok(false), // No token (first launch)
-        Err(_) => Err(KeychainError::OperationFailed(
-            "Keychain verification failed - system password may have changed".to_string(),
-        )),
-    }
+    // init() already proved the keychain is accessible by successfully reading it.
+    Ok(true)
 }
 
 /// Returns whether the OS keychain is available. Calls `init()` lazily.
@@ -120,7 +90,14 @@ pub fn is_available() -> bool {
 }
 
 /// Writes the entire in-memory cache to the single keychain entry.
+///
+/// This is the **only** function that writes to the OS keychain.
+/// Since it always writes to the same STORE_KEY entry that `init()` read,
+/// macOS will not prompt again (same entry = same authorization).
 fn flush() {
+    if !*AVAILABLE.get().unwrap_or(&false) {
+        return;
+    }
     let map = match cache().read() {
         Ok(c) => c.clone(),
         Err(_) => return,
@@ -165,36 +142,6 @@ pub fn delete(key: &str) -> Result<(), KeychainError> {
         flush();
     }
     Ok(())
-}
-
-/// One-time migration: reads credentials from old individual keychain entries
-/// into the single-store format. Call once after upgrading from per-entry storage.
-/// After this runs, all subsequent startups only need 1 keychain read.
-pub fn consolidate_from_individual(keys: &[String]) {
-    if !is_available() || keys.is_empty() {
-        return;
-    }
-    let mut found_any = false;
-    {
-        let mut c = match cache().write() {
-            Ok(c) => c,
-            Err(_) => return,
-        };
-        for key in keys {
-            if c.contains_key(key) {
-                continue;
-            }
-            if let Ok(entry) = keyring::Entry::new(SERVICE_NAME, key) {
-                if let Ok(value) = entry.get_password() {
-                    c.insert(key.clone(), value);
-                    found_any = true;
-                }
-            }
-        }
-    }
-    if found_any {
-        flush();
-    }
 }
 
 /// Generates a keychain key for an SSH server password.
