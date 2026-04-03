@@ -4,22 +4,20 @@ import { ElMessageBox } from "element-plus";
 import {
   Plus,
   Folder,
-  Connection,
   Download,
   Upload,
   Setting,
   ArrowDown,
 } from "@element-plus/icons-vue";
 import { useServerStore } from "@/stores/serverStore";
+import { useConfigExport } from "@/composables/useConfigExport";
 
 const { t } = useI18n();
 const serverStore = useServerStore();
+const { exportConfig, importConfig } = useConfigExport();
 
 const emit = defineEmits<{
   (e: "new-host"): void;
-  (e: "quick-connect"): void;
-  (e: "import"): void;
-  (e: "export"): void;
   (e: "settings"): void;
 }>();
 
@@ -49,14 +47,11 @@ function handleCommand(cmd: string) {
     case "new-group":
       createGroup();
       break;
-    case "quick":
-      emit("quick-connect");
-      break;
     case "import":
-      emit("import");
+      importConfig();
       break;
     case "export":
-      emit("export");
+      exportConfig();
       break;
     case "settings":
       emit("settings");
@@ -82,13 +77,10 @@ function handleCommand(cmd: string) {
         <el-dropdown-item :icon="Folder" command="new-group">
           {{ t("sidebar.newGroup") }}
         </el-dropdown-item>
-        <el-dropdown-item :icon="Connection" command="quick">
-          {{ t("sidebar.quickConnect") }}
-        </el-dropdown-item>
-        <el-dropdown-item divided :icon="Download" command="import">
+        <el-dropdown-item divided :icon="Upload" command="import">
           {{ t("sidebar.importConfig") }}
         </el-dropdown-item>
-        <el-dropdown-item :icon="Upload" command="export">
+        <el-dropdown-item :icon="Download" command="export">
           {{ t("sidebar.exportConfig") }}
         </el-dropdown-item>
         <el-dropdown-item divided :icon="Setting" command="settings">

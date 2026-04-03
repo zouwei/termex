@@ -4,6 +4,7 @@ pub mod forward;
 pub mod proxy;
 pub mod reverse_forward;
 pub mod session;
+pub mod socks5;
 
 /// SSH error types.
 #[derive(Debug, thiserror::Error)]

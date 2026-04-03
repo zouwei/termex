@@ -8,6 +8,7 @@ import { useGitSync } from "@/composables/useGitSync";
 import { useSessionStore } from "@/stores/sessionStore";
 import { useSettingsStore } from "@/stores/settingsStore";
 import { useServerStore } from "@/stores/serverStore";
+import { usePortForwardStore } from "@/stores/portForwardStore";
 import TerminalSearchBar from "./TerminalSearchBar.vue";
 
 const props = defineProps<{
@@ -17,6 +18,7 @@ const props = defineProps<{
 const sessionStore = useSessionStore();
 const settingsStore = useSettingsStore();
 const serverStore = useServerStore();
+const portForwardStore = usePortForwardStore();
 const containerRef = ref<HTMLElement>();
 const sessionIdRef = toRef(props, "sessionId");
 
@@ -54,6 +56,14 @@ const { mount, fit, setTheme, setFont, getSearchAddon, getTerminal, dispose } =
           server.gitSyncMode,
           server.gitSyncLocalPath,
         );
+      }
+
+      // Start all port forwards for this server
+      await portForwardStore.loadForwards(server.id);
+      for (const fw of portForwardStore.getForwards(server.id)) {
+        if (!portForwardStore.isActive(fw.id)) {
+          await portForwardStore.startForward(sid, fw).catch(() => {});
+        }
       }
     },
   });

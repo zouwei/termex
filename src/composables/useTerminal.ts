@@ -65,33 +65,52 @@ export function useTerminal(sessionId: Ref<string>, options?: TerminalOptions) {
     // Ensure focus after xterm fully renders
     requestAnimationFrame(() => terminal?.focus());
 
-    // Open shell with actual terminal dimensions (not hardcoded 80x24)
+    // Bind data events BEFORE opening shell/PTY so no initial output is lost
+    await bindSession();
+
+    const isLocal = sessionId.value.startsWith("local-");
     const { cols, rows } = terminal;
-    try {
-      await sessionStore.openShell(sessionId.value, cols, rows);
-      // Hook for post-shell setup (tmux, git sync, etc.)
-      if (options?.onShellReady) {
-        await options.onShellReady(sessionId.value).catch(() => {});
+
+    if (isLocal) {
+      // Open local PTY
+      try {
+        await tauriInvoke("local_pty_open", {
+          sessionId: sessionId.value,
+          cols,
+          rows,
+        });
+      } catch (err) {
+        terminal.write(`\r\n\x1b[31m[PTY error: ${err}]\x1b[0m\r\n`);
       }
-    } catch (err) {
-      terminal.write(`\r\n\x1b[31m[Shell error: ${err}]\x1b[0m\r\n`);
+    } else {
+      // Open SSH shell with actual terminal dimensions
+      try {
+        await sessionStore.openShell(sessionId.value, cols, rows);
+        if (options?.onShellReady) {
+          await options.onShellReady(sessionId.value).catch(() => {});
+        }
+      } catch (err) {
+        terminal.write(`\r\n\x1b[31m[Shell error: ${err}]\x1b[0m\r\n`);
+      }
     }
 
-    // User input → SSH
+    // User input → backend (SSH or local PTY)
+    const writeCmd = isLocal ? "local_pty_write" : "ssh_write";
     terminal.onData((data: string) => {
       if (sessionId.value) {
         const bytes = new TextEncoder().encode(data);
-        tauriInvoke("ssh_write", {
+        tauriInvoke(writeCmd, {
           sessionId: sessionId.value,
           data: Array.from(bytes),
         }).catch(() => {});
       }
     });
 
-    // Terminal resize → SSH
+    // Terminal resize → backend
+    const resizeCmd = isLocal ? "local_pty_resize" : "ssh_resize";
     terminal.onResize(({ cols, rows }) => {
       if (sessionId.value) {
-        tauriInvoke("ssh_resize", {
+        tauriInvoke(resizeCmd, {
           sessionId: sessionId.value,
           cols,
           rows,
@@ -109,9 +128,6 @@ export function useTerminal(sessionId: Ref<string>, options?: TerminalOptions) {
       }
     });
     resizeObserver.observe(el);
-
-    // Bind SSH data events
-    await bindSession();
 
     // Register terminal in global registry for cross-tab search
     registerTerminal(sessionId.value, terminal, searchAddon);

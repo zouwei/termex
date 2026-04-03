@@ -1,17 +1,33 @@
 import { defineStore } from "pinia";
-import { ref } from "vue";
+import { ref, computed } from "vue";
 import { tauriInvoke } from "@/utils/tauri";
 import type { PortForward, ForwardInput } from "@/types/portForward";
 
 export const usePortForwardStore = defineStore("portForward", () => {
-  const forwards = ref<PortForward[]>([]);
+  /** All loaded forwards, grouped by serverId. */
+  const forwardsByServer = ref<Map<string, PortForward[]>>(new Map());
   const activeForwards = ref<Set<string>>(new Set());
 
-  /** Loads all port forwards for a server. */
+  /** Flat list of all loaded forwards (for StatusBar etc.). */
+  const allForwards = computed(() => {
+    const result: PortForward[] = [];
+    for (const fws of forwardsByServer.value.values()) {
+      result.push(...fws);
+    }
+    return result;
+  });
+
+  /** Returns forwards for a specific server. */
+  function getForwards(serverId: string): PortForward[] {
+    return forwardsByServer.value.get(serverId) ?? [];
+  }
+
+  /** Loads all port forwards for a server (additive, does not overwrite other servers). */
   async function loadForwards(serverId: string): Promise<void> {
-    forwards.value = await tauriInvoke<PortForward[]>("port_forward_list", {
+    const list = await tauriInvoke<PortForward[]>("port_forward_list", {
       serverId,
     });
+    forwardsByServer.value.set(serverId, list);
   }
 
   /** Saves a new port forward rule. */
@@ -19,28 +35,34 @@ export const usePortForwardStore = defineStore("portForward", () => {
     const forward = await tauriInvoke<PortForward>("port_forward_save", {
       input,
     });
-    forwards.value.push(forward);
+    const existing = forwardsByServer.value.get(input.serverId) ?? [];
+    existing.push(forward);
+    forwardsByServer.value.set(input.serverId, existing);
     return forward;
   }
 
   /** Deletes a port forward rule. */
   async function deleteForward(id: string): Promise<void> {
     await tauriInvoke("port_forward_delete", { id });
-    forwards.value = forwards.value.filter((f) => f.id !== id);
+    for (const [serverId, fws] of forwardsByServer.value) {
+      const filtered = fws.filter((f) => f.id !== id);
+      if (filtered.length !== fws.length) {
+        forwardsByServer.value.set(serverId, filtered);
+        break;
+      }
+    }
+    activeForwards.value.delete(id);
   }
 
-  /** Starts a port forward. */
+  /** Starts a port forward (reads rule from DB, routes by type). */
   async function startForward(
     sessionId: string,
     forward: PortForward,
   ): Promise<void> {
+    if (activeForwards.value.has(forward.id)) return; // prevent duplicate start
     await tauriInvoke("port_forward_start", {
       sessionId,
       forwardId: forward.id,
-      localHost: forward.localHost,
-      localPort: forward.localPort,
-      remoteHost: forward.remoteHost ?? "127.0.0.1",
-      remotePort: forward.remotePort ?? 80,
     });
     activeForwards.value.add(forward.id);
   }
@@ -57,8 +79,10 @@ export const usePortForwardStore = defineStore("portForward", () => {
   }
 
   return {
-    forwards,
+    forwardsByServer,
+    allForwards,
     activeForwards,
+    getForwards,
     loadForwards,
     saveForward,
     deleteForward,

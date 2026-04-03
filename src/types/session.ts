@@ -1,11 +1,14 @@
 export type SessionStatus = "connecting" | "authenticated" | "connected" | "disconnected" | "error";
 
+export type SessionType = "ssh" | "local";
+
 export interface Session {
   id: string;
   serverId: string;
   serverName: string;
   status: SessionStatus;
   startedAt: string;
+  type: SessionType;
 }
 
 export interface Tab {

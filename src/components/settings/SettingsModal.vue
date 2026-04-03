@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from "vue";
+import { ref, computed, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { Close } from "@element-plus/icons-vue";
 import AppearanceTab from "./AppearanceTab.vue";
@@ -15,6 +15,7 @@ const isMac = navigator.platform.toUpperCase().includes("MAC");
 
 const props = defineProps<{
   visible: boolean;
+  initialTab?: string;
 }>();
 
 const emit = defineEmits<{
@@ -27,6 +28,13 @@ const dialogVisible = computed({
 });
 
 const activeTab = ref("appearance");
+
+// Switch to initialTab when dialog opens
+watch(() => props.visible, (v) => {
+  if (v && props.initialTab) {
+    activeTab.value = props.initialTab;
+  }
+});
 
 const tabs = computed(() => [
   { name: "appearance", label: t("settings.appearance") },

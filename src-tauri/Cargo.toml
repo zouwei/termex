@@ -1,6 +1,6 @@
 [package]
 name = "termex"
-version = "0.20.1"
+version = "0.22.0"
 description = "Open-source AI-native SSH client"
 authors = ["Termex Contributors"]
 edition = "2021"
@@ -45,6 +45,7 @@ tokio-socks = "0.5"
 tokio-rustls = { version = "0.26", features = ["ring"] }
 rustls-pemfile = "2"
 webpki-roots = "0.26"
+portable-pty = "0.8"
 
 [profile.dev]
 incremental = true

@@ -26,9 +26,9 @@ const splitSubTab = ref<"sftp" | "transfers">("sftp");
 const sftpLayout = computed(() => settingsStore.sftpLayout ?? "tabs");
 const splitRatio = ref(0.5);
 
-// Terminal sizing: in tabs mode it fills the container; in split modes it takes a portion
+// Terminal sizing: local sessions always fullscreen; SSH depends on layout
 const terminalStyle = computed(() => {
-  if (sftpLayout.value === "tabs") {
+  if (isLocal.value || sftpLayout.value === "tabs") {
     return { width: "100%", height: "100%" };
   } else if (sftpLayout.value === "right") {
     return { width: `${splitRatio.value * 100}%`, height: "100%" };
@@ -43,6 +43,7 @@ const { dragging, dropTarget, startDrag } = useDragLayout();
 
 const session = computed(() => sessionStore.sessions.get(props.sessionId));
 const isConnected = computed(() => session.value?.status === "connected");
+const isLocal = computed(() => session.value?.type === "local");
 
 // Open SFTP lazily on sub-tab switch
 watch(activeSubTab, async (tab) => {
@@ -179,8 +180,9 @@ function toggleCwdSync() {
 }
 
 // Auto-activate CWD sync when shell becomes connected (if previously enabled)
+// Auto-activate CWD sync only for SSH sessions when previously enabled
 watch(isConnected, async (connected) => {
-  if (connected && cwdSyncEnabled.value && !oscDispose) {
+  if (connected && !isLocal.value && cwdSyncEnabled.value && !oscDispose) {
     await nextTick();
     await new Promise((r) => setTimeout(r, 800));
     activateCwdSync();
@@ -242,7 +244,7 @@ defineExpose({
     />
 
     <!-- ═══ Tabs mode: overlaid content panels ═══ -->
-    <template v-if="sftpLayout === 'tabs'">
+    <template v-if="!isLocal && sftpLayout === 'tabs'">
       <div v-if="activeSubTab !== 'ssh'" class="absolute inset-0" style="z-index: 5">
         <div
           class="workspace-tab-bar flex items-stretch h-6 shrink-0 px-1 gap-0.5"
@@ -299,7 +301,7 @@ defineExpose({
 
     <!-- ═══ Sub-tab bar (tabs mode, always visible) ═══ -->
     <div
-      v-if="sftpLayout === 'tabs'"
+      v-if="!isLocal && sftpLayout === 'tabs'"
       class="workspace-tab-bar-floating"
     >
       <button
@@ -336,7 +338,7 @@ defineExpose({
     </div>
 
     <!-- ═══ Split modes: resize handle + SFTP panel ═══ -->
-    <template v-if="sftpLayout === 'right' || sftpLayout === 'bottom'">
+    <template v-if="!isLocal && (sftpLayout === 'right' || sftpLayout === 'bottom')">
       <!-- Resize handle -->
       <div
         :class="sftpLayout === 'right' ? 'w-1 cursor-col-resize' : 'h-1 cursor-row-resize'"

@@ -139,18 +139,6 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- Font Size -->
-    <div>
-      <label class="text-sm mb-2 block" style="color: var(--tm-text-secondary)">
-        {{ t("fonts.fontSize") }}
-      </label>
-      <el-input-number
-        v-model="settingsStore.fontSize"
-        :min="8"
-        :max="32"
-      />
-    </div>
-
     <!-- Cursor -->
     <div class="grid grid-cols-2 gap-4">
       <div>
@@ -171,17 +159,29 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- Scrollback -->
-    <div>
-      <label class="text-sm mb-2 block" style="color: var(--tm-text-secondary)">
-        Scrollback Lines
-      </label>
-      <el-input-number
-        v-model="settingsStore.scrollbackLines"
-        :min="1000"
-        :max="100000"
-        :step="1000"
-      />
+    <!-- Font Size + Scrollback -->
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <label class="text-sm mb-2 block" style="color: var(--tm-text-secondary)">
+          {{ t("fonts.fontSize") }}
+        </label>
+        <el-input-number
+          v-model="settingsStore.fontSize"
+          :min="8"
+          :max="32"
+        />
+      </div>
+      <div>
+        <label class="text-sm mb-2 block" style="color: var(--tm-text-secondary)">
+          Scrollback Lines
+        </label>
+        <el-input-number
+          v-model="settingsStore.scrollbackLines"
+          :min="1000"
+          :max="100000"
+          :step="1000"
+        />
+      </div>
     </div>
   </div>
 </template>

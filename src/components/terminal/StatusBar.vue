@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useSessionStore } from "@/stores/sessionStore";
+import { usePortForwardStore } from "@/stores/portForwardStore";
 import { checkStatus as updateCheckStatus } from "@/utils/update";
 import { tmuxStatusMap } from "@/composables/useTmux";
 import { gitSyncStatusMap } from "@/composables/useGitSync";
@@ -10,6 +11,9 @@ const emit = defineEmits<{
 }>();
 
 const sessionStore = useSessionStore();
+const portForwardStore = usePortForwardStore();
+
+const activeForwardCount = computed(() => portForwardStore.activeForwards.size);
 
 const statusText = computed(() => {
   const session = sessionStore.activeSession;
@@ -88,6 +92,13 @@ const statusColor = computed(() => {
     >
       &#x2B06; {{ $t("update.newVersion") }}
     </button>
+
+    <!-- Forward count -->
+    <span
+      v-if="activeForwardCount > 0"
+      class="ml-2 text-[10px] px-1.5 py-0.5 rounded font-mono"
+      style="color: var(--tm-text-secondary)"
+    >&#x21C4; {{ activeForwardCount }} forward{{ activeForwardCount > 1 ? 's' : '' }}</span>
 
     <!-- Git Sync indicator -->
     <span

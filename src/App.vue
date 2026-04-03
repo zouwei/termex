@@ -279,6 +279,7 @@ onBeforeUnmount(() => {
     <!-- Titlebar / Tab bar (full width, acts as custom titlebar) -->
     <TerminalTabs
       :sidebar-open="sidebarVisible"
+      :sidebar-width="sidebarWidth"
       @settings="settingsModalVisible = true"
       @toggle-ai="aiPanelVisible = !aiPanelVisible"
       @new-host="openNewConnection"

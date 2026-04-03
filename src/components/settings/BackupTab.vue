@@ -1,57 +1,22 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { ElMessage, ElMessageBox } from "element-plus";
 import { Download, Upload } from "@element-plus/icons-vue";
-import { tauriInvoke } from "@/utils/tauri";
+import { useConfigExport } from "@/composables/useConfigExport";
 
 const { t } = useI18n();
+const { exportConfig, importConfig } = useConfigExport();
 const exporting = ref(false);
 const importing = ref(false);
 
 async function handleExport() {
-  try {
-    const { value: password } = await ElMessageBox.prompt(
-      t("backup.exportPasswordHint"),
-      t("backup.export"),
-      {
-        inputType: "password",
-        confirmButtonText: t("connection.save"),
-        cancelButtonText: t("connection.cancel"),
-        inputPattern: /\S{4,}/,
-        inputErrorMessage: t("backup.passwordTooShort"),
-      },
-    );
-    exporting.value = true;
-    const path = await tauriInvoke<string>("config_export", { password });
-    ElMessage.success(t("backup.exportSuccess") + `: ${path}`);
-  } catch {
-    // cancelled
-  } finally {
-    exporting.value = false;
-  }
+  exporting.value = true;
+  try { await exportConfig(); } finally { exporting.value = false; }
 }
 
 async function handleImport() {
-  try {
-    const { value: password } = await ElMessageBox.prompt(
-      t("backup.importPasswordHint"),
-      t("backup.import"),
-      {
-        inputType: "password",
-        confirmButtonText: t("connection.save"),
-        cancelButtonText: t("connection.cancel"),
-      },
-    );
-    importing.value = true;
-    // For now, use a fixed path. TODO: integrate file picker
-    await tauriInvoke("config_import", { path: "", password, onConflict: "skip" });
-    ElMessage.success(t("backup.importSuccess"));
-  } catch {
-    // cancelled
-  } finally {
-    importing.value = false;
-  }
+  importing.value = true;
+  try { await importConfig(); } finally { importing.value = false; }
 }
 </script>
 

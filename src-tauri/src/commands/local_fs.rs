@@ -170,6 +170,19 @@ pub async fn save_file_dialog(default_name: String, _title: String) -> Result<Op
     Ok(path.map(|p| p.path().to_string_lossy().to_string()))
 }
 
+/// Opens a native open file dialog and returns the selected path.
+/// `extensions` is a flat list like `["termex", "json"]`.
+#[tauri::command]
+pub async fn open_file_dialog(title: String, extensions: Vec<String>) -> Result<Option<String>, String> {
+    let mut dialog = rfd::AsyncFileDialog::new().set_title(&title);
+    if !extensions.is_empty() {
+        let ext_refs: Vec<&str> = extensions.iter().map(|s| s.as_str()).collect();
+        dialog = dialog.add_filter(&title, &ext_refs);
+    }
+    let path = dialog.pick_file().await;
+    Ok(path.map(|p| p.path().to_string_lossy().to_string()))
+}
+
 /// Returns the current security/keychain status.
 #[tauri::command]
 pub fn security_status(state: State<'_, AppState>) -> Result<SecurityStatus, String> {

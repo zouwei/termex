@@ -3,6 +3,7 @@ mod commands;
 pub mod crypto;
 pub mod keychain;
 pub mod local_ai;
+pub mod local_pty;
 pub mod plugin;
 pub mod recording;
 pub mod sftp;
@@ -154,6 +155,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .manage(app_state)
+        .manage(local_pty::PtyRegistry::new())
         .setup(|app| {
             let app_handle = app.handle();
             let state = app.state::<AppState>();
@@ -221,6 +223,43 @@ pub fn run() {
             });
 
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                let handle = window.app_handle().clone();
+                std::thread::spawn(move || {
+                    let rt = tokio::runtime::Runtime::new().unwrap();
+                    rt.block_on(async {
+                        // Stop all port forwards
+                        if let Some(state) = handle.try_state::<AppState>() {
+                            let mut fwd = state.forwards.write().await;
+                            for (_, active) in fwd.drain() {
+                                active.stop();
+                            }
+                            drop(fwd);
+
+                            // Disconnect all SSH sessions
+                            let mut sessions = state.sessions.write().await;
+                            for (_, session) in sessions.drain() {
+                                let _ = session.disconnect().await;
+                            }
+                            drop(sessions);
+
+                            // Close all proxy sessions
+                            let mut proxies = state.proxy_sessions.write().await;
+                            for (_, entry) in proxies.drain() {
+                                let _ = entry.session.disconnect().await;
+                            }
+                            drop(proxies);
+                        }
+
+                        // Close all local PTY sessions
+                        if let Some(pty_reg) = handle.try_state::<local_pty::PtyRegistry>() {
+                            pty_reg.close_all();
+                        }
+                    });
+                });
+            }
         })
         .invoke_handler(tauri::generate_handler![
             // Master password
@@ -329,7 +368,13 @@ pub fn run() {
             commands::local_fs::security_status,
             commands::local_fs::open_url,
             commands::local_fs::save_file_dialog,
+            commands::local_fs::open_file_dialog,
             commands::local_fs::open_local_terminal,
+            // Local PTY
+            local_pty::local_pty_open,
+            local_pty::local_pty_write,
+            local_pty::local_pty_resize,
+            local_pty::local_pty_close,
             // Fonts
             commands::fonts::fonts_list_custom,
             commands::fonts::fonts_upload,

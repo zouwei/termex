@@ -6,13 +6,16 @@ import { ElMessage } from "element-plus";
 import { useServerStore } from "@/stores/serverStore";
 import { useSessionStore } from "@/stores/sessionStore";
 import { useProxyStore } from "@/stores/proxyStore";
+import { usePortForwardStore } from "@/stores/portForwardStore";
 import { tauriInvoke } from "@/utils/tauri";
 import type { ServerInput } from "@/types/server";
+import type { ForwardInput } from "@/types/portForward";
 
 const { t } = useI18n();
 const serverStore = useServerStore();
 const sessionStore = useSessionStore();
 const proxyStore = useProxyStore();
+const portForwardStore = usePortForwardStore();
 
 const props = defineProps<{
   visible: boolean;
@@ -56,7 +59,7 @@ const form = reactive<ServerInput>({
 });
 
 const title = computed(() =>
-  props.editId ? t("connection.name") : t("sidebar.newConnection"),
+  props.editId ? t("connection.editConnection") : t("sidebar.newConnection"),
 );
 
 // ── Unified connection chain ──
@@ -289,6 +292,99 @@ function resetForm() {
   activeTab.value = "authorization";
 }
 
+// ── Port forwarding state ──
+const addingForward = ref(false);
+const forwardForm = reactive<ForwardInput>({
+  serverId: "",
+  forwardType: "local",
+  localHost: "127.0.0.1",
+  localPort: 8080,
+  remoteHost: "127.0.0.1",
+  remotePort: 80,
+  autoStart: false,
+});
+
+function resetForwardForm() {
+  forwardForm.forwardType = "local";
+  forwardForm.localHost = "127.0.0.1";
+  forwardForm.localPort = 8080;
+  forwardForm.remoteHost = "127.0.0.1";
+  forwardForm.remotePort = 80;
+  forwardForm.autoStart = false;
+  addingForward.value = false;
+}
+
+function onForwardTypeChange(val: string) {
+  if (val === "dynamic") {
+    forwardForm.localPort = 1080;
+    forwardForm.remoteHost = "";
+    forwardForm.remotePort = 0;
+  } else {
+    forwardForm.localPort = 8080;
+    forwardForm.remoteHost = "127.0.0.1";
+    forwardForm.remotePort = 80;
+  }
+}
+
+async function saveForwardRule() {
+  if (!forwardForm.localHost || !forwardForm.localPort) return;
+  const serverId = props.editId;
+  if (!serverId) return;
+  try {
+    await portForwardStore.saveForward({
+      serverId,
+      forwardType: forwardForm.forwardType as "local" | "dynamic",
+      localHost: forwardForm.localHost,
+      localPort: forwardForm.localPort,
+      remoteHost: forwardForm.forwardType === "dynamic" ? null : forwardForm.remoteHost || null,
+      remotePort: forwardForm.forwardType === "dynamic" ? null : forwardForm.remotePort || null,
+      autoStart: forwardForm.autoStart,
+    });
+    resetForwardForm();
+  } catch (e) {
+    ElMessage.error(String(e));
+  }
+}
+
+async function deleteForwardRule(id: string) {
+  try {
+    await portForwardStore.deleteForward(id);
+  } catch (e) {
+    ElMessage.error(String(e));
+  }
+}
+
+// Active session for the server being edited (for start/stop forwards)
+const activeSessionForServer = computed(() => {
+  if (!props.editId) return null;
+  for (const [, sess] of sessionStore.sessions) {
+    if (sess.serverId === props.editId && (sess.status === "connected" || sess.status === "authenticated")) {
+      return sess;
+    }
+  }
+  return null;
+});
+
+async function startForwardRule(forwardId: string) {
+  const sess = activeSessionForServer.value;
+  if (!sess) return;
+  const fw = portForwardStore.getForwards(props.editId!).find((f) => f.id === forwardId);
+  if (!fw) return;
+  try {
+    await portForwardStore.startForward(sess.id, fw);
+  } catch (e) {
+    ElMessage.error(String(e));
+  }
+}
+
+async function stopForwardRule(forwardId: string) {
+  try {
+    await portForwardStore.stopForward(forwardId);
+  } catch (e) {
+    ElMessage.error(String(e));
+  }
+}
+
 async function loadServer(id: string) {
   const server = serverStore.servers.find((s) => s.id === id);
   if (!server) return;
@@ -327,6 +423,9 @@ async function loadServer(id: string) {
     form.password = "";
     form.passphrase = "";
   }
+
+  // Load port forward rules
+  await portForwardStore.loadForwards(id);
 }
 
 async function handleSave() {
@@ -641,6 +740,102 @@ async function handleTest() {
             </p>
           </template>
         </el-form>
+      </el-tab-pane>
+
+      <!-- Tab 5: Forwarding — port forward rules -->
+      <el-tab-pane name="forwarding" :label="t('connection.forwarding')" :disabled="!editId">
+        <div class="space-y-2">
+          <!-- Forward rules list -->
+          <div
+            v-for="fw in portForwardStore.getForwards(editId!)"
+            :key="fw.id"
+            class="flex items-center gap-2 px-2 py-1.5 rounded text-xs"
+            style="background: var(--tm-bg-hover)"
+          >
+            <span class="font-mono shrink-0" :class="fw.forwardType === 'dynamic' ? 'text-purple-400' : 'text-blue-400'">
+              {{ fw.forwardType === "dynamic" ? "D" : "L" }}
+            </span>
+            <span class="font-mono" style="color: var(--tm-text-primary)">
+              {{ fw.localHost }}:{{ fw.localPort }}
+            </span>
+            <template v-if="fw.forwardType !== 'dynamic'">
+              <span style="color: var(--tm-text-muted)">&rarr;</span>
+              <span class="font-mono" style="color: var(--tm-text-primary)">
+                {{ fw.remoteHost }}:{{ fw.remotePort }}
+              </span>
+            </template>
+            <span v-else class="text-[10px]" style="color: var(--tm-text-muted)">(SOCKS5)</span>
+            <span v-if="fw.autoStart" class="text-[10px]" style="color: var(--tm-text-muted)">auto</span>
+            <div class="ml-auto flex items-center gap-1">
+              <!-- Start/Stop (only when connected) -->
+              <template v-if="activeSessionForServer">
+                <button
+                  v-if="portForwardStore.isActive(fw.id)"
+                  class="text-red-400 hover:text-red-300 cursor-pointer text-[10px] px-1"
+                  @click="stopForwardRule(fw.id)"
+                >&#x25A0;</button>
+                <button
+                  v-else
+                  class="text-green-400 hover:text-green-300 cursor-pointer text-[10px] px-1"
+                  @click="startForwardRule(fw.id)"
+                >&#x25B6;</button>
+              </template>
+              <!-- Delete -->
+              <button
+                class="text-red-400 hover:text-red-300 cursor-pointer"
+                @click="deleteForwardRule(fw.id)"
+              >&times;</button>
+            </div>
+          </div>
+
+          <!-- Empty state -->
+          <div
+            v-if="portForwardStore.getForwards(editId!).length === 0 && !addingForward"
+            class="text-xs py-4 text-center"
+            style="color: var(--tm-text-muted)"
+          >
+            {{ t("connection.forwardNone") }}
+          </div>
+
+          <!-- Add forward form -->
+          <div v-if="addingForward" class="space-y-2 p-2 rounded" style="background: var(--tm-bg-hover)">
+            <el-select v-model="forwardForm.forwardType" size="small" class="w-full" @change="onForwardTypeChange">
+              <el-option value="local" :label="t('connection.forwardLocal')" />
+              <el-option value="dynamic" :label="t('connection.forwardDynamic')" />
+            </el-select>
+            <div class="flex gap-2">
+              <el-input v-model="forwardForm.localHost" size="small" placeholder="127.0.0.1" class="flex-1" />
+              <el-input-number v-model="forwardForm.localPort" size="small" :min="1" :max="65535" controls-position="right" class="w-24" />
+            </div>
+            <template v-if="forwardForm.forwardType !== 'dynamic'">
+              <div class="flex gap-2">
+                <el-input v-model="forwardForm.remoteHost" size="small" placeholder="Remote Host" class="flex-1" />
+                <el-input-number v-model="forwardForm.remotePort" size="small" :min="1" :max="65535" controls-position="right" class="w-24" />
+              </div>
+            </template>
+            <p v-else class="text-[10px]" style="color: var(--tm-text-muted)">
+              {{ t("connection.forwardDynamicHint") }}
+            </p>
+            <div class="flex items-center justify-between">
+              <el-checkbox v-model="forwardForm.autoStart" size="small">Auto Start</el-checkbox>
+              <div class="flex gap-2">
+                <el-button size="small" @click="resetForwardForm">{{ t("connection.cancel") }}</el-button>
+                <el-button size="small" type="primary" @click="saveForwardRule">{{ t("connection.save") }}</el-button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Add button -->
+          <el-button
+            v-if="!addingForward"
+            size="small"
+            class="w-full"
+            @click="addingForward = true"
+          >
+            <Plus class="w-3 h-3 mr-1" />
+            {{ t("connection.forwardAdd") }}
+          </el-button>
+        </div>
       </el-tab-pane>
     </el-tabs>
 

@@ -5,6 +5,7 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import { Plus } from "@element-plus/icons-vue";
 import { useServerStore } from "@/stores/serverStore";
 import { useSessionStore } from "@/stores/sessionStore";
+import { useConfigExport } from "@/composables/useConfigExport";
 import type { Server, ServerInput } from "@/types/server";
 import ServerGroup from "./ServerGroup.vue";
 import ServerItem from "./ServerItem.vue";
@@ -14,9 +15,9 @@ import type { MenuItem } from "./ContextMenu.vue";
 const emit = defineEmits<{
   (e: "new-host"): void;
   (e: "edit-server", id: string): void;
-  (e: "import"): void;
-  (e: "export"): void;
 }>();
+
+const { exportConfig, importConfig } = useConfigExport();
 
 const { t } = useI18n();
 const serverStore = useServerStore();
@@ -93,9 +94,9 @@ async function onRootCtxSelect(action: string) {
       await serverStore.createGroup({ name: value.trim() });
     } catch { /* cancelled */ }
   } else if (action === "import") {
-    emit("import");
+    importConfig();
   } else if (action === "export") {
-    emit("export");
+    exportConfig();
   }
 }
 

@@ -11,8 +11,6 @@ const emit = defineEmits<{
   (e: "new-host"): void;
   (e: "settings"): void;
   (e: "edit-server", id: string): void;
-  (e: "import"): void;
-  (e: "export"): void;
 }>();
 
 const serverStore = useServerStore();
@@ -107,8 +105,6 @@ function onSearchBlur() {
           <ServerTree
             @new-host="emit('new-host')"
             @edit-server="(id: string) => emit('edit-server', id)"
-            @import="emit('import')"
-            @export="emit('export')"
           />
         </div>
         <div v-else key="proxies" style="min-height: 100%">

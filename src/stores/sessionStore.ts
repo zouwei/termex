@@ -39,6 +39,7 @@ export const useSessionStore = defineStore("session", () => {
       serverName,
       status: "connecting",
       startedAt: new Date().toISOString(),
+      type: "ssh",
     };
     sessions.value.set(placeholderId, session);
 
@@ -70,6 +71,7 @@ export const useSessionStore = defineStore("session", () => {
         serverName,
         status: "authenticated",
         startedAt: session.startedAt,
+        type: "ssh",
       };
       sessions.value.set(realId, realSession);
 
@@ -86,6 +88,35 @@ export const useSessionStore = defineStore("session", () => {
     }
   }
 
+  /** Opens a local terminal tab (PTY, not SSH). */
+  function openLocalTerminal(): string {
+    const tabKey = `tab-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const sessionId = `local-${tabKey}`;
+
+    const session: Session = {
+      id: sessionId,
+      serverId: "",
+      serverName: "Local Terminal",
+      status: "connected",
+      startedAt: new Date().toISOString(),
+      type: "local",
+    };
+    sessions.value.set(sessionId, session);
+
+    const tab: Tab = {
+      tabKey,
+      id: sessionId,
+      sessionId,
+      title: "Local",
+      active: true,
+    };
+    tabs.value.forEach((t) => (t.active = false));
+    tabs.value.push(tab);
+    activeSessionId.value = sessionId;
+
+    return sessionId;
+  }
+
   /** Opens the shell channel with actual terminal dimensions.
    *  Called by useTerminal after fitAddon calculates real cols/rows. */
   async function openShell(
@@ -100,7 +131,7 @@ export const useSessionStore = defineStore("session", () => {
     }
   }
 
-  /** Disconnects an SSH session and removes the tab. */
+  /** Disconnects a session (SSH or local PTY) and removes the tab. */
   async function disconnect(sessionId: string): Promise<void> {
     // For placeholder sessions that never connected, just remove the tab
     if (sessionId.startsWith("connecting-")) {
@@ -108,13 +139,14 @@ export const useSessionStore = defineStore("session", () => {
       return;
     }
 
-    // SFTP cleanup is handled per-tab by useTabSftp (component unmount)
-    // and by the Rust backend (ssh_disconnect auto-closes SFTP channel)
-
-    try {
-      await tauriInvoke("ssh_disconnect", { sessionId });
-    } catch {
-      // Ignore disconnect errors
+    if (sessionId.startsWith("local-")) {
+      try {
+        await tauriInvoke("local_pty_close", { sessionId });
+      } catch { /* ignore */ }
+    } else {
+      try {
+        await tauriInvoke("ssh_disconnect", { sessionId });
+      } catch { /* ignore */ }
     }
     closeTab(sessionId);
   }
@@ -156,6 +188,7 @@ export const useSessionStore = defineStore("session", () => {
     activeSession,
     activeTab,
     connect,
+    openLocalTerminal,
     openShell,
     disconnect,
     updateStatus,

@@ -122,30 +122,67 @@ pub fn port_forward_delete(state: State<'_, AppState>, id: String) -> Result<(),
         .map_err(|e| e.to_string())
 }
 
-/// Starts a local port forward on an active SSH session.
+/// Starts a port forward on an active SSH session.
+/// Reads the forward rule from DB and routes to the correct implementation.
 #[tauri::command]
 pub async fn port_forward_start(
     state: State<'_, AppState>,
     app: AppHandle,
     session_id: String,
     forward_id: String,
-    local_host: String,
-    local_port: u16,
-    remote_host: String,
-    remote_port: u16,
 ) -> Result<(), String> {
-    forward::start_local_forward(
-        app,
-        session_id,
-        forward_id,
-        local_host,
-        local_port,
-        remote_host,
-        remote_port,
-        &state.forwards,
-    )
-    .await
-    .map_err(|e| e.to_string())
+    // Read forward rule from DB
+    let rule = state
+        .db
+        .with_conn(|conn| {
+            conn.query_row(
+                "SELECT forward_type, local_host, local_port, remote_host, remote_port
+                 FROM port_forwards WHERE id = ?1",
+                rusqlite::params![forward_id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, i32>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                        row.get::<_, Option<i32>>(4)?,
+                    ))
+                },
+            )
+        })
+        .map_err(|e| e.to_string())?;
+
+    let (forward_type, local_host, local_port, remote_host, remote_port) = rule;
+
+    match forward_type.as_str() {
+        "local" => {
+            forward::start_local_forward(
+                app,
+                session_id,
+                forward_id,
+                local_host,
+                local_port as u16,
+                remote_host.unwrap_or_else(|| "127.0.0.1".into()),
+                remote_port.unwrap_or(80) as u16,
+                &state.forwards,
+            )
+            .await
+            .map_err(|e| e.to_string())
+        }
+        "dynamic" => {
+            forward::start_dynamic_forward(
+                app,
+                session_id,
+                forward_id,
+                local_host,
+                local_port as u16,
+                &state.forwards,
+            )
+            .await
+            .map_err(|e| e.to_string())
+        }
+        other => Err(format!("Unsupported forward type: {}", other)),
+    }
 }
 
 /// Stops a port forward.

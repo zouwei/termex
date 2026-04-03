@@ -153,6 +153,99 @@ async fn bridge_streams(
     let _ = channel.close().await;
 }
 
+/// Starts a dynamic port forward (`-D`): listens on `local_host:local_port`,
+/// runs a SOCKS5 server, and tunnels each connection via SSH direct-tcpip.
+pub async fn start_dynamic_forward(
+    app: tauri::AppHandle,
+    session_id: String,
+    forward_id: String,
+    local_host: String,
+    local_port: u16,
+    registry: &ForwardRegistry,
+) -> Result<(), super::SshError> {
+    let listener = TcpListener::bind(format!("{local_host}:{local_port}"))
+        .await
+        .map_err(super::SshError::Io)?;
+
+    let cancel = CancellationToken::new();
+    let cancel_child = cancel.clone();
+    let fid = forward_id.clone();
+
+    let task = tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                result = listener.accept() => {
+                    match result {
+                        Ok((local_stream, _)) => {
+                            let sid = session_id.clone();
+                            let app2 = app.clone();
+                            tokio::spawn(async move {
+                                handle_dynamic_connection(app2, sid, local_stream).await;
+                            });
+                        }
+                        Err(_) => break,
+                    }
+                }
+                _ = cancel_child.cancelled() => break,
+            }
+        }
+    });
+
+    let active = ActiveForward {
+        id: fid.clone(),
+        cancel,
+        task,
+    };
+    registry.write().await.insert(fid, active);
+
+    Ok(())
+}
+
+/// Handles a single dynamic-forwarded TCP connection:
+/// SOCKS5 handshake → SSH direct-tcpip → bridge.
+async fn handle_dynamic_connection(
+    app: tauri::AppHandle,
+    session_id: String,
+    mut local_stream: tokio::net::TcpStream,
+) {
+    use super::socks5;
+
+    // SOCKS5 handshake to get target address
+    let (target_host, target_port) = match socks5::socks5_handshake(&mut local_stream).await {
+        Ok(addr) => addr,
+        Err(_) => return,
+    };
+
+    // Open SSH direct-tcpip channel to the target
+    let state = app.state::<crate::state::AppState>();
+    let sessions = state.sessions.read().await;
+    let Some(ssh) = sessions.get(&session_id) else {
+        let _ = socks5::socks5_reply_failure(&mut local_stream, socks5::REPLY_GENERAL_FAILURE).await;
+        return;
+    };
+
+    let channel = match ssh
+        .handle()
+        .channel_open_direct_tcpip(&target_host, target_port as u32, "127.0.0.1", 0)
+        .await
+    {
+        Ok(ch) => ch,
+        Err(_) => {
+            let _ = socks5::socks5_reply_failure(&mut local_stream, socks5::REPLY_HOST_UNREACHABLE).await;
+            return;
+        }
+    };
+    drop(sessions);
+
+    // Send SOCKS5 success reply
+    if socks5::socks5_reply_success(&mut local_stream).await.is_err() {
+        return;
+    }
+
+    // Bridge the streams
+    bridge_streams(local_stream, channel).await;
+}
+
 /// Stops a forwarding by its ID.
 pub async fn stop_forward(
     forward_id: &str,

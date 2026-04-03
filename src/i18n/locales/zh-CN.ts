@@ -204,6 +204,7 @@ export default {
     importSuccess: "导入完成：导入 {imported} 项，跳过 {skipped} 项",
   },
   connection: {
+    editConnection: "\u7F16\u8F91\u8FDE\u63A5",
     name: "\u540D\u79F0",
     host: "\u4E3B\u673A",
     port: "\u7AEF\u53E3",
@@ -270,6 +271,12 @@ export default {
     gitSyncNotify: "\u4EC5\u901A\u77E5 \u2014 \u63A8\u9001\u5B8C\u6210\u65F6\u684C\u9762\u901A\u77E5",
     gitSyncAutoPull: "\u81EA\u52A8\u62C9\u53D6 \u2014 \u81EA\u52A8 pull \u5230\u672C\u5730",
     gitSyncHint: "\u8BF7\u786E\u4FDD\u8FDC\u7A0B\u4ED3\u5E93\u7684 .gitignore \u5DF2\u6392\u9664 .env \u7B49\u654F\u611F\u6587\u4EF6\u3002",
+    forwarding: "\u7AEF\u53E3\u8F6C\u53D1",
+    forwardAdd: "\u6DFB\u52A0\u8F6C\u53D1\u89C4\u5219",
+    forwardLocal: "\u672C\u5730\u8F6C\u53D1",
+    forwardDynamic: "\u52A8\u6001\u8F6C\u53D1 (SOCKS5)",
+    forwardDynamicHint: "SOCKS5 \u4EE3\u7406 \u2014 \u6240\u6709\u6D4F\u89C8\u5668\u6D41\u91CF\u901A\u8FC7\u8FDC\u7A0B\u670D\u52A1\u5668\u8F6C\u53D1",
+    forwardNone: "\u6682\u65E0\u8F6C\u53D1\u89C4\u5219\u3002",
   },
   context: {
     connect: "\u8FDE\u63A5",

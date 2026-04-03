@@ -33,15 +33,62 @@ pub fn config_export(
     state: State<'_, AppState>,
     file_path: String,
     password: String,
+    server_ids: Option<Vec<String>>,
 ) -> Result<(), String> {
-    // Collect data
+    // Collect data — optionally filtered by server_ids
     let payload = state
         .db
         .with_conn(|conn| {
-            let servers = query_all_json(conn, "SELECT * FROM servers")?;
-            let groups = query_all_json(conn, "SELECT * FROM groups")?;
-            let port_forwards = query_all_json(conn, "SELECT * FROM port_forwards")?;
-            let settings = query_all_json(conn, "SELECT * FROM settings")?;
+            let (servers, group_ids) = if let Some(ref ids) = server_ids {
+                let placeholders: Vec<String> = ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
+                let sql = format!("SELECT * FROM servers WHERE id IN ({})", placeholders.join(","));
+                let mut stmt = conn.prepare(&sql)?;
+                let params: Vec<&dyn rusqlite::types::ToSql> = ids.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+                let servers = query_stmt_json(&mut stmt, &params)?;
+                // Collect group_ids referenced by exported servers
+                let gids: Vec<String> = servers.iter()
+                    .filter_map(|s| s["group_id"].as_str().map(|s| s.to_string()))
+                    .collect();
+                (servers, Some(gids))
+            } else {
+                (query_all_json(conn, "SELECT * FROM servers")?, None)
+            };
+
+            let groups = if let Some(ref gids) = group_ids {
+                if gids.is_empty() {
+                    Vec::new()
+                } else {
+                    let placeholders: Vec<String> = gids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
+                    let sql = format!("SELECT * FROM groups WHERE id IN ({})", placeholders.join(","));
+                    let mut stmt = conn.prepare(&sql)?;
+                    let params: Vec<&dyn rusqlite::types::ToSql> = gids.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+                    query_stmt_json(&mut stmt, &params)?
+                }
+            } else {
+                query_all_json(conn, "SELECT * FROM groups")?
+            };
+
+            let port_forwards = if let Some(ref ids) = server_ids {
+                if ids.is_empty() {
+                    Vec::new()
+                } else {
+                    let placeholders: Vec<String> = ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
+                    let sql = format!("SELECT * FROM port_forwards WHERE server_id IN ({})", placeholders.join(","));
+                    let mut stmt = conn.prepare(&sql)?;
+                    let params: Vec<&dyn rusqlite::types::ToSql> = ids.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+                    query_stmt_json(&mut stmt, &params)?
+                }
+            } else {
+                query_all_json(conn, "SELECT * FROM port_forwards")?
+            };
+
+            // Settings only exported for full backup
+            let settings = if server_ids.is_none() {
+                query_all_json(conn, "SELECT * FROM settings")?
+            } else {
+                Vec::new()
+            };
+
             Ok(ExportPayload {
                 servers,
                 groups,
@@ -250,6 +297,44 @@ fn query_all_json(
                         // Skip binary blobs (encrypted data) in export
                         serde_json::Value::Null
                     }
+                    Err(_) => serde_json::Value::Null,
+                };
+                map.insert(name.clone(), val);
+            }
+            Ok(serde_json::Value::Object(map))
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(rows)
+}
+
+/// Helper: executes a prepared statement with params and returns all rows as JSON values.
+fn query_stmt_json(
+    stmt: &mut rusqlite::Statement,
+    params: &[&dyn rusqlite::types::ToSql],
+) -> Result<Vec<serde_json::Value>, rusqlite::Error> {
+    let col_count = stmt.column_count();
+    let col_names: Vec<String> = (0..col_count)
+        .map(|i| stmt.column_name(i).unwrap_or("").to_string())
+        .collect();
+
+    let rows = stmt
+        .query_map(rusqlite::params_from_iter(params), |row| {
+            let mut map = serde_json::Map::new();
+            for (i, name) in col_names.iter().enumerate() {
+                let val = match row.get_ref(i) {
+                    Ok(rusqlite::types::ValueRef::Null) => serde_json::Value::Null,
+                    Ok(rusqlite::types::ValueRef::Integer(n)) => {
+                        serde_json::Value::Number(n.into())
+                    }
+                    Ok(rusqlite::types::ValueRef::Real(f)) => serde_json::json!(f),
+                    Ok(rusqlite::types::ValueRef::Text(s)) => {
+                        serde_json::Value::String(
+                            String::from_utf8_lossy(s).to_string(),
+                        )
+                    }
+                    Ok(rusqlite::types::ValueRef::Blob(_)) => serde_json::Value::Null,
                     Err(_) => serde_json::Value::Null,
                 };
                 map.insert(name.clone(), val);

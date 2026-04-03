@@ -4,6 +4,7 @@ import { useI18n } from "vue-i18n";
 import { ElMessageBox } from "element-plus";
 import { ArrowRight } from "@element-plus/icons-vue";
 import { useServerStore } from "@/stores/serverStore";
+import { useConfigExport } from "@/composables/useConfigExport";
 import type { Server, ServerGroup, ServerInput } from "@/types/server";
 import ServerItem from "./ServerItem.vue";
 import ContextMenu from "./ContextMenu.vue";
@@ -11,6 +12,7 @@ import type { MenuItem } from "./ContextMenu.vue";
 
 const { t } = useI18n();
 const serverStore = useServerStore();
+const { exportConfig, importConfig } = useConfigExport();
 
 const props = defineProps<{
   group: ServerGroup;
@@ -123,6 +125,8 @@ const ctxItems = computed<MenuItem[]>(() => [
   { label: t("sidebar.newConnection"), action: "new-host" },
   { label: t("context.rename"), action: "rename", divided: true },
   { label: t("context.newSubgroup"), action: "new-subgroup" },
+  { label: t("sidebar.importConfig"), action: "import", divided: true },
+  { label: t("sidebar.exportConfig"), action: "export" },
   {
     label: t("context.delete"),
     action: "delete",
@@ -136,6 +140,20 @@ function onContextMenu(e: MouseEvent) {
   ctxX.value = e.clientX;
   ctxY.value = e.clientY;
   ctxVisible.value = true;
+}
+
+/** Collect all server IDs belonging to a group and its subgroups recursively. */
+function collectGroupServerIds(groupId: string): string[] {
+  const ids: string[] = [];
+  for (const s of serverStore.servers) {
+    if (s.groupId === groupId) ids.push(s.id);
+  }
+  for (const g of serverStore.groups) {
+    if (g.parentId === groupId) {
+      ids.push(...collectGroupServerIds(g.id));
+    }
+  }
+  return ids;
 }
 
 async function onCtxSelect(action: string) {
@@ -160,6 +178,14 @@ async function onCtxSelect(action: string) {
         parentId: props.group.id,
       });
     } catch { /* cancelled */ }
+  } else if (action === "import") {
+    importConfig();
+  } else if (action === "export") {
+    // Export all servers in this group (including subgroups)
+    const ids = collectGroupServerIds(props.group.id);
+    if (ids.length > 0) {
+      exportConfig(ids, `${props.group.name}.termex`);
+    }
   } else if (action === "delete") {
     try {
       await ElMessageBox.confirm(

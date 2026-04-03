@@ -2,10 +2,9 @@
 import { ref, computed, nextTick } from "vue";
 import { useI18n } from "vue-i18n";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Close, Setting, Monitor } from "@element-plus/icons-vue";
+import { Close, Setting } from "@element-plus/icons-vue";
 import { useSessionStore } from "@/stores/sessionStore";
 import { tauriInvoke } from "@/utils/tauri";
-import { ElMessage } from "element-plus";
 import ContextMenu from "@/components/sidebar/ContextMenu.vue";
 import type { MenuItem } from "@/components/sidebar/ContextMenu.vue";
 
@@ -28,14 +27,15 @@ function handleTitlebarMouseDown(e: MouseEvent) {
 
 const props = defineProps<{
   sidebarOpen?: boolean;
+  sidebarWidth?: number;
 }>();
 
 const isMac = navigator.platform.toUpperCase().includes("MAC");
-// macOS: when sidebar open use sidebar width (240px), otherwise traffic light width (78px)
+// macOS: when sidebar open, match actual sidebar width; otherwise traffic light width (78px)
 // Windows/Linux: no spacer needed
 const spacerWidth = computed(() => {
   if (!isMac) return "0px";
-  return props.sidebarOpen ? "240px" : "78px";
+  return props.sidebarOpen ? `${props.sidebarWidth ?? 240}px` : "78px";
 });
 
 const emit = defineEmits<{
@@ -54,12 +54,8 @@ function onTabClose(e: MouseEvent, sessionId: string) {
   sessionStore.disconnect(sessionId);
 }
 
-async function openLocalTerminal() {
-  try {
-    await tauriInvoke("open_local_terminal");
-  } catch (err) {
-    ElMessage.error(`${t("terminal.openLocalTerminalError")}: ${err}`);
-  }
+function openLocalTerminal() {
+  sessionStore.openLocalTerminal();
 }
 
 // ── Inline rename ──
@@ -161,6 +157,7 @@ async function onCtxSelect(action: string) {
     sessionStore.sessions.set(placeholderId, {
       id: placeholderId, serverId, serverName,
       status: "connecting", startedAt: new Date().toISOString(),
+      type: "ssh",
     });
     if (wasActive) sessionStore.activeSessionId = placeholderId;
 
@@ -173,6 +170,7 @@ async function onCtxSelect(action: string) {
       sessionStore.sessions.set(realId, {
         id: realId, serverId, serverName,
         status: "authenticated", startedAt: existingTab.title,
+        type: "ssh",
       });
       if (sessionStore.activeSessionId === placeholderId) {
         sessionStore.activeSessionId = realId;
@@ -212,7 +210,7 @@ async function onCtxSelect(action: string) {
     <button
       v-for="tab in sessionStore.tabs"
       :key="tab.tabKey"
-      class="tab-btn group flex items-center gap-1.5 px-3 h-full text-xs transition-colors shrink-0 max-w-[180px]"
+      class="tab-btn group flex items-center gap-1.5 px-3 h-full text-xs transition-colors shrink-0 w-[120px]"
            :class="tab.active ? 'tm-tab-active border-b-2 border-b-primary-500' : 'tm-tab-inactive'"
       @click="onTabClick(tab.sessionId)"
       @mousedown.middle.prevent="sessionStore.disconnect(tab.sessionId)"
@@ -242,29 +240,31 @@ async function onCtxSelect(action: string) {
         @click.stop
         @dblclick.stop
       />
-      <span v-else class="truncate">{{ tab.title }}</span>
+      <span v-else class="truncate flex-1 text-left">{{ tab.title }}</span>
 
       <!-- Close button -->
       <el-icon
         :size="12"
-        class="shrink-0 opacity-0 group-hover:opacity-100 hover:text-red-400 transition-opacity"
+        class="shrink-0 ml-auto opacity-0 group-hover:opacity-100 hover:text-red-400 transition-opacity"
         @click.stop="onTabClose($event, tab.sessionId)"
       >
         <Close />
       </el-icon>
     </button>
 
-    <!-- Empty fill -->
-    <div class="flex-1 h-full" />
-
-    <!-- Local terminal -->
+    <!-- New local terminal [+] -->
     <button
-      class="tm-icon-btn px-2 h-full transition-colors shrink-0"
+      class="tab-btn tm-icon-btn px-2 h-full transition-colors shrink-0"
       :title="$t('terminal.openLocalTerminal')"
       @click="openLocalTerminal"
     >
-      <el-icon :size="14"><Monitor /></el-icon>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+        <path d="M12 5v14M5 12h14" />
+      </svg>
     </button>
+
+    <!-- Empty fill -->
+    <div class="flex-1 h-full" />
 
     <!-- AI toggle -->
     <button

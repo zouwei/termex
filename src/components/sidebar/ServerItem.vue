@@ -4,6 +4,7 @@ import { useI18n } from "vue-i18n";
 import { ElMessageBox } from "element-plus";
 import { Monitor } from "@element-plus/icons-vue";
 import { useServerStore } from "@/stores/serverStore";
+import { useConfigExport } from "@/composables/useConfigExport";
 import type { Server, ServerInput } from "@/types/server";
 import { tauriInvoke } from "@/utils/tauri";
 import ContextMenu from "./ContextMenu.vue";
@@ -11,6 +12,7 @@ import type { MenuItem } from "./ContextMenu.vue";
 
 const { t } = useI18n();
 const serverStore = useServerStore();
+const { exportConfig } = useConfigExport();
 
 const props = defineProps<{
   server: Server;
@@ -114,10 +116,10 @@ const ctxItems = computed<MenuItem[]>(() => {
     }
   }
 
+  items.push({ label: t("sidebar.exportConfig"), action: "export", divided: true });
   items.push({
     label: t("context.delete"),
     action: "delete",
-    divided: true,
     danger: true,
   });
 
@@ -193,6 +195,8 @@ async function onCtxSelect(action: string) {
   } else if (action.startsWith("move:")) {
     const groupId = action.slice(5);
     await serverStore.updateServer(props.server.id, toInput({ groupId }));
+  } else if (action === "export") {
+    exportConfig([props.server.id], `${props.server.name}.termex`);
   } else if (action === "delete") {
     try {
       await ElMessageBox.confirm(
