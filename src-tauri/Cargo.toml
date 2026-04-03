@@ -1,6 +1,6 @@
 [package]
 name = "termex"
-version = "0.21.0"
+version = "0.20.0"
 description = "Open-source AI-native SSH client"
 authors = ["Termex Contributors"]
 edition = "2021"
