@@ -16,3 +16,5 @@ pub mod update;
 pub mod local_ai;
 pub mod fonts;
 pub mod menu;
+pub mod tor;
+pub mod git_sync;

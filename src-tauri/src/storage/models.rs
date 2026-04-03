@@ -73,6 +73,18 @@ pub struct Server {
     pub startup_cmd: Option<String>,
     pub encoding: String,
     pub tags: Vec<String>,
+    /// tmux mode: "disabled" | "auto" | "always"
+    pub tmux_mode: String,
+    /// Action on tab close: "detach" | "kill"
+    pub tmux_close_action: String,
+    /// Whether Git Auto Sync is enabled for this server.
+    pub git_sync_enabled: bool,
+    /// Git sync mode: "notify" | "auto_pull"
+    pub git_sync_mode: String,
+    /// Local git repository path for auto-pull.
+    pub git_sync_local_path: Option<String>,
+    /// Remote git repository path.
+    pub git_sync_remote_path: Option<String>,
     pub last_connected: Option<String>,
     pub created_at: String,
     pub updated_at: String,

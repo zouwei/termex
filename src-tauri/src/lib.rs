@@ -341,6 +341,12 @@ pub fn run() {
             commands::update::exit_app,
             // Menu
             commands::menu::set_menu_checked,
+            // Tor
+            commands::tor::tor_detect,
+            // Git Sync
+            commands::git_sync::git_sync_deploy,
+            commands::git_sync::git_sync_setup_tunnel,
+            commands::git_sync::git_sync_pull,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Termex");

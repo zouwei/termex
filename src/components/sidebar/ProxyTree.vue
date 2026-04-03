@@ -25,19 +25,34 @@ const form = ref<ProxyInput>({
   username: "", password: "",
 });
 
+const torStatus = ref<{ running: boolean; port: number } | null>(null);
+
 const proxyTypes: { value: ProxyType; label: string; defaultPort: number }[] = [
   { value: "socks5", label: "SOCKS5", defaultPort: 1080 },
   { value: "socks4", label: "SOCKS4", defaultPort: 1080 },
   { value: "http", label: "HTTP CONNECT", defaultPort: 8080 },
+  { value: "tor", label: "Tor", defaultPort: 9050 },
 ];
 
 const dialogTitle = computed(() =>
   editId.value ? t("connection.proxyEdit") : t("connection.proxyAdd"),
 );
 
-function onTypeChange(val: ProxyType) {
+async function onTypeChange(val: ProxyType) {
   const pt = proxyTypes.find((p) => p.value === val);
   if (pt) form.value.port = pt.defaultPort;
+  if (val === "tor") {
+    form.value.host = "127.0.0.1";
+    form.value.tlsEnabled = false;
+    torStatus.value = null;
+    try {
+      const status = await tauriInvoke<{ running: boolean; port: number }>("tor_detect", {});
+      torStatus.value = status;
+      if (status.running) form.value.port = status.port;
+    } catch { /* ignore */ }
+  } else {
+    torStatus.value = null;
+  }
 }
 
 function openAddDialog() {
@@ -203,7 +218,12 @@ onMounted(() => {
         @dblclick="openEditDialog(proxy.id)"
       >
         <!-- Protocol icon -->
-        <svg v-if="proxy.proxyType === 'socks5'" class="shrink-0" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <svg v-if="proxy.proxyType === 'tor'" class="shrink-0" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a855f7" stroke-width="1.5">
+          <circle cx="12" cy="12" r="10" />
+          <circle cx="12" cy="12" r="6" />
+          <circle cx="12" cy="12" r="2.5" fill="#a855f7" />
+        </svg>
+        <svg v-else-if="proxy.proxyType === 'socks5'" class="shrink-0" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="10" />
           <ellipse cx="12" cy="12" rx="4" ry="10" />
           <path d="M2 12h20" />
@@ -288,7 +308,12 @@ onMounted(() => {
           </el-form-item>
         </div>
 
-        <!-- TLS (HTTP only) -->
+        <!-- Tor detect status -->
+        <div v-if="form.proxyType === 'tor' && torStatus" class="text-xs px-2 py-1.5 rounded mb-3" :class="torStatus.running ? 'text-green-500' : 'text-red-400'" style="background: var(--tm-bg-hover)">
+          {{ torStatus.running ? t("connection.proxyTorRunning", { port: torStatus.port }) : t("connection.proxyTorNotFound") }}
+        </div>
+
+        <!-- TLS (HTTP only, hidden for Tor) -->
         <template v-if="form.proxyType === 'http'">
           <el-divider style="margin: 8px 0;" />
           <div class="flex items-center gap-4 mb-3">

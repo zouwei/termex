@@ -1,14 +1,44 @@
 use std::sync::Arc;
 
-use russh::client;
+use russh::client::{self, Msg, Session};
 use russh::keys::key::PrivateKeyWithHashAlg;
 use russh::keys::PublicKey;
+use russh::{Channel, ChannelMsg};
 
+use super::reverse_forward::{
+    parse_sync_request, SharedReverseForwardRegistry, SyncAction, HTTP_200,
+};
 use super::SshError;
 
 /// SSH client handler that accepts all host keys (MVP).
-/// TODO: Implement known_hosts verification in a later step.
-pub struct ClientHandler;
+/// Also handles reverse port forwarding channels for Git Auto Sync.
+pub struct ClientHandler {
+    /// Shared reverse forward registry for Git Sync.
+    pub reverse_registry: Option<SharedReverseForwardRegistry>,
+    /// Tauri app handle for emitting events.
+    pub app_handle: Option<tauri::AppHandle>,
+}
+
+impl ClientHandler {
+    /// Creates a basic handler without reverse forwarding support.
+    pub fn new() -> Self {
+        Self {
+            reverse_registry: None,
+            app_handle: None,
+        }
+    }
+
+    /// Creates a handler with reverse forwarding support.
+    pub fn with_reverse_forward(
+        registry: SharedReverseForwardRegistry,
+        app_handle: tauri::AppHandle,
+    ) -> Self {
+        Self {
+            reverse_registry: Some(registry),
+            app_handle: Some(app_handle),
+        }
+    }
+}
 
 #[async_trait::async_trait]
 impl client::Handler for ClientHandler {
@@ -21,6 +51,72 @@ impl client::Handler for ClientHandler {
         _server_public_key: &PublicKey,
     ) -> Result<bool, Self::Error> {
         Ok(true)
+    }
+
+    /// Called when the server opens a forwarded-tcpip channel (reverse port forwarding).
+    /// Reads the HTTP request from the remote curl, parses it, and emits a Tauri event.
+    async fn server_channel_open_forwarded_tcpip(
+        &mut self,
+        channel: Channel<Msg>,
+        connected_address: &str,
+        connected_port: u32,
+        _originator_address: &str,
+        _originator_port: u32,
+        _session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        let registry = match &self.reverse_registry {
+            Some(r) => r.clone(),
+            None => return Ok(()),
+        };
+        let app_handle = match &self.app_handle {
+            Some(h) => h.clone(),
+            None => return Ok(()),
+        };
+        let address = connected_address.to_string();
+        let port = connected_port;
+
+        // Spawn a task to handle the channel data asynchronously
+        tokio::spawn(async move {
+            let reg = registry.read().await;
+            let server_id = match reg.lookup(&address, port) {
+                Some(entry) => entry.server_id.clone(),
+                None => return,
+            };
+            drop(reg);
+
+            // Read data from the channel
+            let mut channel = channel;
+            let mut buf = Vec::new();
+            loop {
+                match channel.wait().await {
+                    Some(ChannelMsg::Data { data }) => {
+                        buf.extend_from_slice(&data);
+                        // Check if we have a complete HTTP request
+                        if let Some(action) = parse_sync_request(&buf) {
+                            // Send HTTP 200 response
+                            let _ = channel.data(&HTTP_200[..]).await;
+                            let _ = channel.eof().await;
+                            let _ = channel.close().await;
+
+                            match action {
+                                SyncAction::PushDone => {
+                                    use tauri::Emitter;
+                                    let _ = app_handle.emit("git-sync://push-done", &server_id);
+                                }
+                            }
+                            return;
+                        }
+                    }
+                    Some(ChannelMsg::Eof) | None => {
+                        let _ = channel.close().await;
+                        return;
+                    }
+                    _ => {}
+                }
+            }
+        });
+
+        Ok(())
     }
 }
 

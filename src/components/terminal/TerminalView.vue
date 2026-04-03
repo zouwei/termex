@@ -3,8 +3,11 @@ import { ref, computed, onMounted, watch, toRef, nextTick } from "vue";
 import { useTerminal } from "@/composables/useTerminal";
 import { useTerminalSearch } from "@/composables/useTerminalSearch";
 import { useKeywordHighlight } from "@/composables/useKeywordHighlight";
+import { useTmux } from "@/composables/useTmux";
+import { useGitSync } from "@/composables/useGitSync";
 import { useSessionStore } from "@/stores/sessionStore";
 import { useSettingsStore } from "@/stores/settingsStore";
+import { useServerStore } from "@/stores/serverStore";
 import TerminalSearchBar from "./TerminalSearchBar.vue";
 
 const props = defineProps<{
@@ -13,6 +16,7 @@ const props = defineProps<{
 
 const sessionStore = useSessionStore();
 const settingsStore = useSettingsStore();
+const serverStore = useServerStore();
 const containerRef = ref<HTMLElement>();
 const sessionIdRef = toRef(props, "sessionId");
 
@@ -20,8 +24,39 @@ const isPlaceholder = computed(() => props.sessionId.startsWith("connecting-"));
 const session = computed(() => sessionStore.sessions.get(props.sessionId));
 const isActive = computed(() => sessionStore.activeSessionId === props.sessionId);
 
+// tmux + git sync integration
+const tmux = useTmux();
+const gitSync = useGitSync();
+
 const { mount, fit, setTheme, setFont, getSearchAddon, getTerminal, dispose } =
-  useTerminal(sessionIdRef);
+  useTerminal(sessionIdRef, {
+    onShellReady: async (sid) => {
+      const sess = sessionStore.sessions.get(sid);
+      if (!sess) return;
+      const server = serverStore.servers.find((s) => s.id === sess.serverId);
+      if (!server) return;
+
+      // tmux init
+      if (server.tmuxMode !== "disabled") {
+        await tmux.initTmux(
+          sid,
+          server.id,
+          server.tmuxMode,
+          server.startupCmd,
+        );
+      }
+
+      // Git Auto Sync
+      if (server.gitSyncEnabled) {
+        await gitSync.setupSync(
+          sid,
+          server.id,
+          server.gitSyncMode,
+          server.gitSyncLocalPath,
+        );
+      }
+    },
+  });
 
 // Search integration
 const search = useTerminalSearch(getSearchAddon);
@@ -88,7 +123,7 @@ watch(
   },
 );
 
-defineExpose({ fit, dispose, openSearch, search, getTerminal });
+defineExpose({ fit, dispose, openSearch, search, getTerminal, tmuxStatus: tmux.status, cleanupTmux: tmux.cleanupTmux });
 </script>
 
 <template>

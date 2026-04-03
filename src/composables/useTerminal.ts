@@ -15,7 +15,12 @@ import { registerTerminal, unregisterTerminal } from "@/utils/terminalRegistry";
  * Composable that manages an xterm.js terminal instance
  * and bridges it with an SSH session via Tauri IPC.
  */
-export function useTerminal(sessionId: Ref<string>) {
+export interface TerminalOptions {
+  /** Called after SSH shell is successfully opened. Use for tmux init, git sync, etc. */
+  onShellReady?: (sessionId: string) => Promise<void>;
+}
+
+export function useTerminal(sessionId: Ref<string>, options?: TerminalOptions) {
   const terminalRef = ref<HTMLElement>();
   let terminal: Terminal | null = null;
   let fitAddon: FitAddon | null = null;
@@ -64,6 +69,10 @@ export function useTerminal(sessionId: Ref<string>) {
     const { cols, rows } = terminal;
     try {
       await sessionStore.openShell(sessionId.value, cols, rows);
+      // Hook for post-shell setup (tmux, git sync, etc.)
+      if (options?.onShellReady) {
+        await options.onShellReady(sessionId.value).catch(() => {});
+      }
     } catch (err) {
       terminal.write(`\r\n\x1b[31m[Shell error: ${err}]\x1b[0m\r\n`);
     }

@@ -33,7 +33,7 @@ impl SshSession {
             ..Default::default()
         });
 
-        let handler = ClientHandler;
+        let handler = ClientHandler::new();
         let handle = client::connect(config, (host, port), handler)
             .await
             .map_err(|e| SshError::ConnectionFailed(e.to_string()))?;
@@ -66,7 +66,7 @@ impl SshSession {
             ..Default::default()
         });
 
-        let handler = ClientHandler;
+        let handler = ClientHandler::new();
         let handle = client::connect_stream(config, stream, handler)
             .await
             .map_err(|e| SshError::ConnectionFailed(format!("Failed to connect through proxy: {}", e)))?;
@@ -93,7 +93,7 @@ impl SshSession {
             ..Default::default()
         });
 
-        let handler = ClientHandler;
+        let handler = ClientHandler::new();
         let handle = client::connect_stream(config, stream, handler)
             .await
             .map_err(|e| SshError::ConnectionFailed(format!("SSH via proxy: {}", e)))?;

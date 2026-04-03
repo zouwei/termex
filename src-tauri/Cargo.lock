@@ -5323,7 +5323,7 @@ dependencies = [
 
 [[package]]
 name = "termex"
-version = "0.19.4"
+version = "0.21.0"
 dependencies = [
  "argon2",
  "async-trait",

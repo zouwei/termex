@@ -9,6 +9,7 @@ use crate::plugin::registry::PluginRegistry;
 use crate::recording::recorder::RecorderRegistry;
 use crate::sftp::session::SftpHandle;
 use crate::ssh::forward::ForwardRegistry;
+use crate::ssh::reverse_forward::{self, SharedReverseForwardRegistry};
 use crate::ssh::session::SshSession;
 use crate::storage::Database;
 
@@ -48,6 +49,8 @@ pub struct AppState {
     /// Proxy session pool for bastion/jump hosts, keyed by bastion server_id
     /// Multiple inner sessions can share the same bastion connection via reference counting
     pub proxy_sessions: TokioRwLock<HashMap<String, ProxyEntry>>,
+    /// Reverse forward registry for Git Auto Sync notifications.
+    pub reverse_forward_registry: SharedReverseForwardRegistry,
 }
 
 impl AppState {
@@ -69,6 +72,7 @@ impl AppState {
             active_downloads: TokioRwLock::new(HashMap::new()),
             keychain_verified: RwLock::new(None), // Will be checked once on startup
             proxy_sessions: TokioRwLock::new(HashMap::new()), // ProxyJump bastion pool
+            reverse_forward_registry: reverse_forward::new_shared_registry(),
         };
 
         // Initialize keychain (reads single store entry → at most 1 OS prompt)

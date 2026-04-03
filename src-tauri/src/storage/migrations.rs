@@ -10,6 +10,7 @@ const MIGRATIONS: &[(i32, &str, &str)] = &[
     (5, "local model integration", ""),
     (6, "network proxy support", MIGRATION_V6),
     (7, "proxy TLS support", ""),
+    (8, "tmux and git sync support", ""),
 ];
 
 /// Runs all pending migrations in order.
@@ -69,6 +70,15 @@ pub fn run_migrations(conn: &Connection) -> Result<(), rusqlite::Error> {
                 add_column_if_missing(conn, "proxies", "ca_cert_path", "TEXT");
                 add_column_if_missing(conn, "proxies", "client_cert_path", "TEXT");
                 add_column_if_missing(conn, "proxies", "client_key_path", "TEXT");
+            }
+            if version == 8 {
+                // Migration v8: tmux persistent sessions + Git Auto Sync
+                add_column_if_missing(conn, "servers", "tmux_mode", "TEXT DEFAULT 'disabled'");
+                add_column_if_missing(conn, "servers", "tmux_close_action", "TEXT DEFAULT 'detach'");
+                add_column_if_missing(conn, "servers", "git_sync_enabled", "INTEGER DEFAULT 0");
+                add_column_if_missing(conn, "servers", "git_sync_mode", "TEXT DEFAULT 'notify'");
+                add_column_if_missing(conn, "servers", "git_sync_local_path", "TEXT");
+                add_column_if_missing(conn, "servers", "git_sync_remote_path", "TEXT");
             }
             conn.execute(
                 "INSERT INTO _migrations (version, description, applied_at) VALUES (?1, ?2, ?3)",

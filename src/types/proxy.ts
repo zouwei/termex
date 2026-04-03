@@ -1,5 +1,5 @@
 /** Supported network proxy types. */
-export type ProxyType = "socks5" | "socks4" | "http";
+export type ProxyType = "socks5" | "socks4" | "http" | "tor";
 
 /** A network proxy configuration (read from backend). */
 export interface Proxy {

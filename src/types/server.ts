@@ -24,6 +24,12 @@ export interface Server {
   startupCmd?: string;
   encoding: string;
   tags: string[];
+  tmuxMode: string;
+  tmuxCloseAction: string;
+  gitSyncEnabled: boolean;
+  gitSyncMode: string;
+  gitSyncLocalPath?: string;
+  gitSyncRemotePath?: string;
   lastConnected?: string;
   createdAt: string;
   updatedAt: string;
@@ -45,6 +51,12 @@ export interface ServerInput {
   startupCmd?: string;
   encoding?: string;
   tags?: string[];
+  tmuxMode?: string;
+  tmuxCloseAction?: string;
+  gitSyncEnabled?: boolean;
+  gitSyncMode?: string;
+  gitSyncLocalPath?: string;
+  gitSyncRemotePath?: string;
 }
 
 /** Input for creating or updating a group. */

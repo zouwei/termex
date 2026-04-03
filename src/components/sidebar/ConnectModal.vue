@@ -47,6 +47,12 @@ const form = reactive<ServerInput>({
   networkProxyId: null,
   startupCmd: "",
   tags: [],
+  tmuxMode: "disabled",
+  tmuxCloseAction: "detach",
+  gitSyncEnabled: false,
+  gitSyncMode: "notify",
+  gitSyncLocalPath: "",
+  gitSyncRemotePath: "",
 });
 
 const title = computed(() =>
@@ -272,6 +278,12 @@ function resetForm() {
   form.networkProxyId = null;
   form.startupCmd = "";
   form.tags = [];
+  form.tmuxMode = "disabled";
+  form.tmuxCloseAction = "detach";
+  form.gitSyncEnabled = false;
+  form.gitSyncMode = "notify";
+  form.gitSyncLocalPath = "";
+  form.gitSyncRemotePath = "";
   chain.value = [];
   testResult.value = null;
   activeTab.value = "authorization";
@@ -291,6 +303,12 @@ async function loadServer(id: string) {
   form.networkProxyId = (server.networkProxyId || null) as string | null;
   form.startupCmd = server.startupCmd ?? "";
   form.tags = [...server.tags];
+  form.tmuxMode = server.tmuxMode ?? "disabled";
+  form.tmuxCloseAction = server.tmuxCloseAction ?? "detach";
+  form.gitSyncEnabled = server.gitSyncEnabled ?? false;
+  form.gitSyncMode = server.gitSyncMode ?? "notify";
+  form.gitSyncLocalPath = server.gitSyncLocalPath ?? "";
+  form.gitSyncRemotePath = server.gitSyncRemotePath ?? "";
 
   // Rebuild chain from saved fields
   const hops: ChainHop[] = [];
@@ -578,6 +596,50 @@ async function handleTest() {
               <el-button size="small" type="primary" @click="saveQuickProxy">{{ t("connection.save") }}</el-button>
             </div>
           </div>
+        </el-form>
+      </el-tab-pane>
+
+      <!-- Tab 4: Sync — tmux + Git Auto Sync -->
+      <el-tab-pane name="sync" :label="t('connection.sync')">
+        <el-form label-position="top" size="default">
+          <!-- tmux settings -->
+          <el-form-item :label="t('connection.tmuxMode')">
+            <el-select v-model="form.tmuxMode" class="w-full">
+              <el-option value="disabled" :label="t('connection.tmuxDisabled')" />
+              <el-option value="auto" :label="t('connection.tmuxAuto')" />
+              <el-option value="always" :label="t('connection.tmuxAlways')" />
+            </el-select>
+          </el-form-item>
+          <el-form-item v-if="form.tmuxMode !== 'disabled'" :label="t('connection.tmuxCloseAction')">
+            <el-select v-model="form.tmuxCloseAction" class="w-full">
+              <el-option value="detach" :label="t('connection.tmuxDetach')" />
+              <el-option value="kill" :label="t('connection.tmuxKill')" />
+            </el-select>
+          </el-form-item>
+
+          <el-divider style="margin: 12px 0;" />
+
+          <!-- Git Auto Sync -->
+          <el-form-item>
+            <el-checkbox v-model="form.gitSyncEnabled">{{ t('connection.gitSyncEnable') }}</el-checkbox>
+          </el-form-item>
+          <template v-if="form.gitSyncEnabled">
+            <el-form-item :label="t('connection.gitSyncRemotePath')">
+              <el-input v-model="form.gitSyncRemotePath" placeholder="/home/user/project" />
+            </el-form-item>
+            <el-form-item :label="t('connection.gitSyncLocalPath')">
+              <el-input v-model="form.gitSyncLocalPath" placeholder="/Users/me/project" />
+            </el-form-item>
+            <el-form-item :label="t('connection.gitSyncMode')">
+              <el-select v-model="form.gitSyncMode" class="w-full">
+                <el-option value="notify" :label="t('connection.gitSyncNotify')" />
+                <el-option value="auto_pull" :label="t('connection.gitSyncAutoPull')" />
+              </el-select>
+            </el-form-item>
+            <p class="text-[10px] mt-1" style="color: var(--tm-text-muted)">
+              {{ t('connection.gitSyncHint') }}
+            </p>
+          </template>
         </el-form>
       </el-tab-pane>
     </el-tabs>

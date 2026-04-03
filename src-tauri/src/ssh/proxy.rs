@@ -22,6 +22,8 @@ pub enum ProxyType {
     Socks5,
     Socks4,
     Http,
+    /// Tor proxy — delegates to SOCKS5 (Tor exposes a standard SOCKS5 interface).
+    Tor,
 }
 
 impl ProxyType {
@@ -31,6 +33,7 @@ impl ProxyType {
             "socks5" => Some(Self::Socks5),
             "socks4" => Some(Self::Socks4),
             "http" => Some(Self::Http),
+            "tor" => Some(Self::Tor),
             _ => None,
         }
     }
@@ -41,6 +44,7 @@ impl ProxyType {
             Self::Socks5 => "socks5",
             Self::Socks4 => "socks4",
             Self::Http => "http",
+            Self::Tor => "tor",
         }
     }
 }
@@ -76,7 +80,7 @@ pub async fn connect_via_proxy(
     target_port: u16,
 ) -> Result<Box<dyn AsyncStream>, SshError> {
     match proxy.proxy_type {
-        ProxyType::Socks5 => connect_socks5(proxy, target_host, target_port).await,
+        ProxyType::Socks5 | ProxyType::Tor => connect_socks5(proxy, target_host, target_port).await,
         ProxyType::Socks4 => connect_socks4(proxy, target_host, target_port).await,
         ProxyType::Http => {
             if proxy.tls.enabled {

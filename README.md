@@ -18,6 +18,8 @@
 
 ![](https://raw.githubusercontent.com/zouwei/resource/master/images/moraya/20260329-151239.-image.png)
 
+![](https://raw.githubusercontent.com/zouwei/resource/master/images/moraya/20260402-141840.-image.png)
+
 ## Why Termex?
 
 |  | Termius | Tabby | WindTerm | Termex |
@@ -110,7 +112,7 @@ ring + Argon2id          AES-256-GCM encryption & key derivation
 | Close Current Tab | `Cmd+W` | `Ctrl+W` |
 | Next Tab | `Cmd+Tab` | `Ctrl+Tab` |
 | Previous Tab | `Cmd+Shift+Tab` | `Ctrl+Shift+Tab` |
-| Go to Tab 1–9 | `Cmd+1` ~ `Cmd+9` | `Ctrl+1` ~ `Ctrl+9` |
+| Go to Tab 1–9 | `Cmd+1` \~ `Cmd+9` | `Ctrl+1` \~ `Ctrl+9` |
 
 ### Search
 
@@ -259,9 +261,12 @@ git push origin main --tags     # triggers GitHub Actions build
 - [x] v0.12.0 -- SSH ProxyJump & Bastion (multi-level jump servers, connection pooling, SSH Agent)
 - [x] v0.13.0 -- SFTP Enhancement (context menu, clipboard ops, chmod, file info)
 - [x] v0.14.0 -- Font Management (6 built-in fonts, custom upload, live terminal updates)
-- [ ] v0.15.0 -- Terminal Search System (in-terminal search, keyword highlighting, cross-tab search)
-- [ ] v0.16.0 -- Custom Keybindings (user-defined shortcuts, record mode, live apply)
-- [ ] v0.17.0 -- Server-to-Server SFTP (direct file transfer between remote servers)
+- [x] v0.15.0 -- Terminal Search System (in-terminal search, keyword highlighting, cross-tab search)
+- [x] v0.16.0 -- Custom Keybindings (user-defined shortcuts, record mode, live apply)
+- [x] v0.17.0 -- Server-to-Server SFTP (direct file transfer between remote servers)
+- [x] v0.18.0 -- Network Proxy (SOCKS5/SOCKS4/HTTP CONNECT, HTTPS with mTLS, proxy + bastion chain)
+- [x] v0.19.0 -- SFTP Per-Tab (per-tab SFTP instances, drag-based layout switching, CWD sync)
+- [x] v0.20.0 -- Tor Proxy + tmux Persistent Sessions + Git Auto Sync (digital nomad remote dev workflow)
 
 ## Contributing
 

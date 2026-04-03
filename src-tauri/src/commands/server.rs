@@ -31,6 +31,23 @@ pub struct ServerInput {
     pub encoding: String,
     #[serde(default)]
     pub tags: Vec<String>,
+    #[serde(default = "default_tmux_mode")]
+    pub tmux_mode: String,
+    #[serde(default = "default_tmux_close_action")]
+    pub tmux_close_action: String,
+    #[serde(default)]
+    pub git_sync_enabled: bool,
+    #[serde(default = "default_git_sync_mode")]
+    pub git_sync_mode: String,
+    pub git_sync_local_path: Option<String>,
+    pub git_sync_remote_path: Option<String>,
+}
+
+fn default_tmux_mode() -> String {
+    "disabled".into()
+}
+fn default_tmux_close_action() -> String {
+    "detach".into()
 }
 
 fn default_port() -> i32 {
@@ -38,6 +55,9 @@ fn default_port() -> i32 {
 }
 fn default_encoding() -> String {
     "UTF-8".into()
+}
+fn default_git_sync_mode() -> String {
+    "notify".into()
 }
 
 /// Input for creating or updating a group.
@@ -78,7 +98,9 @@ pub fn server_list(state: State<'_, AppState>) -> Result<Vec<Server>, String> {
             let mut stmt = conn.prepare(
                 "SELECT id, name, host, port, username, auth_type, password_enc, key_path,
                         passphrase_enc, group_id, sort_order, proxy_id, startup_cmd,
-                        encoding, tags, last_connected, created_at, updated_at, network_proxy_id
+                        encoding, tags, last_connected, created_at, updated_at, network_proxy_id,
+                        tmux_mode, tmux_close_action,
+                        git_sync_enabled, git_sync_mode, git_sync_local_path, git_sync_remote_path
                  FROM servers ORDER BY sort_order, name",
             )?;
             let rows = stmt
@@ -106,6 +128,12 @@ pub fn server_list(state: State<'_, AppState>) -> Result<Vec<Server>, String> {
                         startup_cmd: row.get(12)?,
                         encoding: row.get(13)?,
                         tags,
+                        tmux_mode: row.get::<_, Option<String>>(19)?.unwrap_or_else(|| "disabled".into()),
+                        tmux_close_action: row.get::<_, Option<String>>(20)?.unwrap_or_else(|| "detach".into()),
+                        git_sync_enabled: row.get::<_, Option<bool>>(21)?.unwrap_or(false),
+                        git_sync_mode: row.get::<_, Option<String>>(22)?.unwrap_or_else(|| "notify".into()),
+                        git_sync_local_path: row.get(23)?,
+                        git_sync_remote_path: row.get(24)?,
                         last_connected: row.get(15)?,
                         created_at: row.get(16)?,
                         updated_at: row.get(17)?,
@@ -148,8 +176,12 @@ pub fn server_create(
                 "INSERT INTO servers (id, name, host, port, username, auth_type,
                     password_enc, password_keychain_id, key_path,
                     passphrase_enc, passphrase_keychain_id, group_id, sort_order,
-                    proxy_id, network_proxy_id, startup_cmd, encoding, tags, created_at, updated_at)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20)",
+                    proxy_id, network_proxy_id, startup_cmd, encoding, tags,
+                    tmux_mode, tmux_close_action,
+                    git_sync_enabled, git_sync_mode, git_sync_local_path, git_sync_remote_path,
+                    created_at, updated_at)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,
+                         ?19,?20,?21,?22,?23,?24,?25,?26)",
                 rusqlite::params![
                     id,
                     input.name,
@@ -169,6 +201,12 @@ pub fn server_create(
                     input.startup_cmd,
                     input.encoding,
                     tags_json,
+                    input.tmux_mode,
+                    input.tmux_close_action,
+                    input.git_sync_enabled,
+                    input.git_sync_mode,
+                    input.git_sync_local_path,
+                    input.git_sync_remote_path,
                     now,
                     now,
                 ],
@@ -194,6 +232,12 @@ pub fn server_create(
         startup_cmd: input.startup_cmd,
         encoding: input.encoding,
         tags: input.tags,
+        tmux_mode: input.tmux_mode,
+        tmux_close_action: input.tmux_close_action,
+        git_sync_enabled: input.git_sync_enabled,
+        git_sync_mode: input.git_sync_mode,
+        git_sync_local_path: input.git_sync_local_path,
+        git_sync_remote_path: input.git_sync_remote_path,
         last_connected: None,
         created_at: now.clone(),
         updated_at: now,
@@ -235,8 +279,12 @@ pub fn server_update(
                     passphrase_keychain_id=COALESCE(?10, passphrase_keychain_id),
                     group_id=?11,
                     proxy_id=?12, network_proxy_id=?13,
-                    startup_cmd=?14, encoding=?15, tags=?16, updated_at=?17
-                 WHERE id=?18",
+                    startup_cmd=?14, encoding=?15, tags=?16,
+                    tmux_mode=?17, tmux_close_action=?18,
+                    git_sync_enabled=?19, git_sync_mode=?20,
+                    git_sync_local_path=?21, git_sync_remote_path=?22,
+                    updated_at=?23
+                 WHERE id=?24",
                 rusqlite::params![
                     input.name,
                     input.host,
@@ -254,6 +302,12 @@ pub fn server_update(
                     input.startup_cmd,
                     input.encoding,
                     tags_json,
+                    input.tmux_mode,
+                    input.tmux_close_action,
+                    input.git_sync_enabled,
+                    input.git_sync_mode,
+                    input.git_sync_local_path,
+                    input.git_sync_remote_path,
                     now,
                     id,
                 ],
@@ -282,6 +336,12 @@ pub fn server_update(
         startup_cmd: input.startup_cmd,
         encoding: input.encoding,
         tags: input.tags,
+        tmux_mode: input.tmux_mode,
+        tmux_close_action: input.tmux_close_action,
+        git_sync_enabled: input.git_sync_enabled,
+        git_sync_mode: input.git_sync_mode,
+        git_sync_local_path: input.git_sync_local_path,
+        git_sync_remote_path: input.git_sync_remote_path,
         last_connected: None,
         created_at: String::new(),
         updated_at: now,
