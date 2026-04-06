@@ -89,6 +89,7 @@ pub async fn ssh_connect(
                 client_cert_path: proxy_record.client_cert_path,
                 client_key_path: proxy_record.client_key_path,
             },
+            command: proxy_record.command,
         })
     } else {
         None
@@ -359,6 +360,7 @@ pub async fn ssh_test(
                 client_cert_path: proxy_record.client_cert_path,
                 client_key_path: proxy_record.client_key_path,
             },
+            command: proxy_record.command,
         })
     } else {
         None

@@ -5445,7 +5445,7 @@ dependencies = [
 
 [[package]]
 name = "termex"
-version = "0.21.1"
+version = "0.22.0"
 dependencies = [
  "argon2",
  "async-trait",

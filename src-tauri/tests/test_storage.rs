@@ -17,7 +17,7 @@ fn test_migrations_idempotent() {
     let version: i32 = conn
         .query_row("SELECT MAX(version) FROM _migrations", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 8);
+    assert_eq!(version, 9);
 }
 
 #[test]
@@ -27,7 +27,7 @@ fn test_all_migrations_applied() {
     let count: i32 = conn
         .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(count, 8);
+    assert_eq!(count, 9);
 }
 
 #[test]
@@ -116,6 +116,21 @@ fn test_server_insert_with_keychain_fields() {
         .query_row("SELECT passphrase_keychain_id FROM servers WHERE id='s1'", [], |r| r.get(0))
         .unwrap();
     assert!(pp_id.is_none());
+}
+
+#[test]
+fn test_v9_proxy_command_column() {
+    let conn = fresh_db();
+    run_migrations(&conn).unwrap();
+    let has_col = |col: &str| -> bool {
+        conn.prepare(&format!(
+            "SELECT COUNT(*) FROM pragma_table_info('proxies') WHERE name='{col}'"
+        ))
+        .and_then(|mut s| s.query_row([], |r| r.get::<_, i32>(0)))
+        .map(|c| c > 0)
+        .unwrap_or(false)
+    };
+    assert!(has_col("command"));
 }
 
 // ── DB Open Test ──

@@ -94,7 +94,7 @@ pub struct Server {
 // Network Proxy
 // ============================================================
 
-/// A network proxy configuration (SOCKS5 / SOCKS4 / HTTP CONNECT).
+/// A network proxy configuration (SOCKS5 / SOCKS4 / HTTP CONNECT / ProxyCommand).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Proxy {
@@ -113,6 +113,8 @@ pub struct Proxy {
     pub ca_cert_path: Option<String>,
     pub client_cert_path: Option<String>,
     pub client_key_path: Option<String>,
+    /// ProxyCommand string (only for `command` type proxies).
+    pub command: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }

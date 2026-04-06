@@ -24,6 +24,8 @@ pub enum ProxyType {
     Http,
     /// Tor proxy — delegates to SOCKS5 (Tor exposes a standard SOCKS5 interface).
     Tor,
+    /// ProxyCommand — spawns an external process and uses its stdin/stdout as transport.
+    Command,
 }
 
 impl ProxyType {
@@ -34,6 +36,7 @@ impl ProxyType {
             "socks4" => Some(Self::Socks4),
             "http" => Some(Self::Http),
             "tor" => Some(Self::Tor),
+            "command" => Some(Self::Command),
             _ => None,
         }
     }
@@ -45,6 +48,7 @@ impl ProxyType {
             Self::Socks4 => "socks4",
             Self::Http => "http",
             Self::Tor => "tor",
+            Self::Command => "command",
         }
     }
 }
@@ -68,6 +72,8 @@ pub struct ProxyConfig {
     pub username: Option<String>,
     pub password: Option<String>,
     pub tls: ProxyTlsConfig,
+    /// ProxyCommand string (only used when `proxy_type == Command`).
+    pub command: Option<String>,
 }
 
 /// Connects to a target host through a network proxy, returning an async stream.
@@ -88,6 +94,13 @@ pub async fn connect_via_proxy(
             } else {
                 connect_http(proxy, target_host, target_port).await
             }
+        }
+        ProxyType::Command => {
+            let cmd = proxy.command.as_deref()
+                .ok_or_else(|| SshError::ProxyFailed("ProxyCommand is empty".into()))?;
+            super::proxy_command::connect_command(
+                cmd, target_host, target_port, proxy.username.as_deref(),
+            ).await
         }
     }
 }

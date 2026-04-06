@@ -1,5 +1,5 @@
 /** Supported network proxy types. */
-export type ProxyType = "socks5" | "socks4" | "http" | "tor";
+export type ProxyType = "socks5" | "socks4" | "http" | "tor" | "command";
 
 /** A network proxy configuration (read from backend). */
 export interface Proxy {
@@ -14,6 +14,8 @@ export interface Proxy {
   caCertPath?: string;
   clientCertPath?: string;
   clientKeyPath?: string;
+  /** ProxyCommand string (only for `command` type proxies). */
+  command?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -31,4 +33,5 @@ export interface ProxyInput {
   caCertPath?: string;
   clientCertPath?: string;
   clientKeyPath?: string;
+  command?: string;
 }

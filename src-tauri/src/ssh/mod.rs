@@ -2,6 +2,7 @@ pub mod auth;
 pub mod channel;
 pub mod forward;
 pub mod proxy;
+pub mod proxy_command;
 pub mod reverse_forward;
 pub mod session;
 pub mod socks5;

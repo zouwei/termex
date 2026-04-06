@@ -26,6 +26,7 @@ const proxyTypes: { value: ProxyType; label: string; defaultPort: number }[] = [
   { value: "socks5", label: "SOCKS5", defaultPort: 1080 },
   { value: "socks4", label: "SOCKS4", defaultPort: 1080 },
   { value: "http", label: "HTTP CONNECT", defaultPort: 8080 },
+  { value: "command", label: "ProxyCommand", defaultPort: 0 },
 ];
 
 function typeLabel(t: string) {
@@ -48,6 +49,7 @@ function startAdd() {
     username: "", password: "",
     tlsEnabled: false, tlsVerify: true,
     caCertPath: "", clientCertPath: "", clientKeyPath: "",
+    command: "",
   };
   editing.value = true;
 }
@@ -69,6 +71,7 @@ async function startEdit(id: string) {
     caCertPath: proxy.caCertPath ?? "",
     clientCertPath: proxy.clientCertPath ?? "",
     clientKeyPath: proxy.clientKeyPath ?? "",
+    command: proxy.command ?? "",
   };
   editing.value = true;
 }
@@ -79,7 +82,8 @@ function cancelEdit() {
 }
 
 async function saveProxy() {
-  if (!form.value.name || !form.value.host) return;
+  const isCmd = form.value.proxyType === "command";
+  if (!form.value.name || (isCmd ? !form.value.command : !form.value.host)) return;
   try {
     if (editId.value) {
       await proxyStore.update(editId.value, form.value);
@@ -159,38 +163,54 @@ onMounted(() => {
           />
         </el-select>
       </div>
-      <div class="flex gap-2">
+      <!-- Network proxy fields (SOCKS5/SOCKS4/HTTP/Tor) -->
+      <template v-if="form.proxyType !== 'command'">
+        <div class="flex gap-2">
+          <el-input
+            v-model="form.host"
+            size="small"
+            :placeholder="t('connection.proxyHost')"
+            class="flex-1"
+          />
+          <el-input-number
+            v-model="form.port"
+            size="small"
+            :min="1"
+            :max="65535"
+            controls-position="right"
+            class="w-24"
+          />
+        </div>
+        <div class="flex gap-2">
+          <el-input
+            v-model="form.username"
+            size="small"
+            :placeholder="t('connection.proxyUsername') + ' (' + t('sftp.cancel') + ')'"
+            class="flex-1"
+          />
+          <el-input
+            v-model="form.password"
+            size="small"
+            type="password"
+            show-password
+            :placeholder="t('connection.proxyPassword') + ' (' + t('sftp.cancel') + ')'"
+            class="flex-1"
+          />
+        </div>
+      </template>
+      <!-- ProxyCommand field -->
+      <template v-else>
         <el-input
-          v-model="form.host"
+          v-model="form.command"
+          type="textarea"
+          :rows="2"
           size="small"
-          :placeholder="t('connection.proxyHost')"
-          class="flex-1"
+          :placeholder="t('connection.proxyCommandPlaceholder')"
         />
-        <el-input-number
-          v-model="form.port"
-          size="small"
-          :min="1"
-          :max="65535"
-          controls-position="right"
-          class="w-24"
-        />
-      </div>
-      <div class="flex gap-2">
-        <el-input
-          v-model="form.username"
-          size="small"
-          :placeholder="t('connection.proxyUsername') + ' (' + t('sftp.cancel') + ')'"
-          class="flex-1"
-        />
-        <el-input
-          v-model="form.password"
-          size="small"
-          type="password"
-          show-password
-          :placeholder="t('connection.proxyPassword') + ' (' + t('sftp.cancel') + ')'"
-          class="flex-1"
-        />
-      </div>
+        <div class="text-[10px]" style="color: var(--tm-text-muted)">
+          {{ t("connection.proxyCommandHint") }}
+        </div>
+      </template>
       <!-- TLS config (HTTP CONNECT only) -->
       <template v-if="form.proxyType === 'http'">
         <div class="flex items-center gap-3 pt-1">
@@ -230,7 +250,9 @@ onMounted(() => {
           {{ typeLabel(proxy.proxyType) }}
         </span>
         <span v-if="proxy.tlsEnabled" class="shrink-0 px-1 py-0.5 rounded text-[10px] font-mono" style="background: #16a34a20; color: #16a34a">TLS</span>
-        <span class="truncate" style="color: var(--tm-text-muted)">{{ proxy.host }}:{{ proxy.port }}</span>
+        <span class="truncate" style="color: var(--tm-text-muted)">
+          {{ proxy.proxyType === "command" ? (proxy.command ?? "") : `${proxy.host}:${proxy.port}` }}
+        </span>
 
         <span class="ml-auto shrink-0 text-[10px]" style="color: var(--tm-text-muted)">
           {{ t("connection.proxyUsedBy", { count: usageCount(proxy.id) }) }}

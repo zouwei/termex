@@ -26,6 +26,7 @@ pub struct ProxyInput {
     pub ca_cert_path: Option<String>,
     pub client_cert_path: Option<String>,
     pub client_key_path: Option<String>,
+    pub command: Option<String>,
 }
 
 fn default_true() -> bool { true }
@@ -55,6 +56,7 @@ pub fn proxy_create(
         cred.encrypted.as_deref(), cred.keychain_id.as_deref(),
         input.tls_enabled, input.tls_verify,
         input.ca_cert_path.as_deref(), input.client_cert_path.as_deref(), input.client_key_path.as_deref(),
+        input.command.as_deref(),
         &now,
     )?;
 
@@ -65,6 +67,7 @@ pub fn proxy_create(
         tls_enabled: input.tls_enabled, tls_verify: input.tls_verify,
         ca_cert_path: input.ca_cert_path, client_cert_path: input.client_cert_path,
         client_key_path: input.client_key_path,
+        command: input.command,
         created_at: now.clone(), updated_at: now,
     })
 }
@@ -88,6 +91,7 @@ pub fn proxy_update(
         cred.encrypted.as_deref(), cred.keychain_id.as_deref(),
         input.tls_enabled, input.tls_verify,
         input.ca_cert_path.as_deref(), input.client_cert_path.as_deref(), input.client_key_path.as_deref(),
+        input.command.as_deref(),
         &now,
     )?;
 
@@ -98,6 +102,7 @@ pub fn proxy_update(
         tls_enabled: input.tls_enabled, tls_verify: input.tls_verify,
         ca_cert_path: input.ca_cert_path, client_cert_path: input.client_cert_path,
         client_key_path: input.client_key_path,
+        command: input.command,
         created_at: String::new(), updated_at: now,
     })
 }

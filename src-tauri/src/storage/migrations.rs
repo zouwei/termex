@@ -11,6 +11,7 @@ const MIGRATIONS: &[(i32, &str, &str)] = &[
     (6, "network proxy support", MIGRATION_V6),
     (7, "proxy TLS support", ""),
     (8, "tmux and git sync support", ""),
+    (9, "proxy command support", ""),
 ];
 
 /// Runs all pending migrations in order.
@@ -79,6 +80,10 @@ pub fn run_migrations(conn: &Connection) -> Result<(), rusqlite::Error> {
                 add_column_if_missing(conn, "servers", "git_sync_mode", "TEXT DEFAULT 'notify'");
                 add_column_if_missing(conn, "servers", "git_sync_local_path", "TEXT");
                 add_column_if_missing(conn, "servers", "git_sync_remote_path", "TEXT");
+            }
+            if version == 9 {
+                // Migration v9: ProxyCommand support
+                add_column_if_missing(conn, "proxies", "command", "TEXT");
             }
             conn.execute(
                 "INSERT INTO _migrations (version, description, applied_at) VALUES (?1, ?2, ?3)",

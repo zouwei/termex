@@ -133,7 +133,7 @@ const connectionPath = computed<PathHop[]>(() =>
       return {
         type: "proxy",
         label: p?.name ?? hop.id,
-        detail: p ? `${p.proxyType.toUpperCase()}, ${p.host}:${p.port}` : "",
+        detail: p ? (p.proxyType === "command" ? `CMD, ${p.command ?? ""}` : `${p.proxyType.toUpperCase()}, ${p.host}:${p.port}`) : "",
         color: "#f59e0b",
       };
     }
@@ -203,7 +203,7 @@ function onHopMouseDown(idx: number, e: MouseEvent) {
 const addingProxy = ref(false);
 const proxyForm = reactive({
   name: "",
-  proxyType: "socks5" as "socks5" | "socks4" | "http",
+  proxyType: "socks5" as "socks5" | "socks4" | "http" | "command",
   host: "",
   port: 1080,
   username: "",
@@ -213,12 +213,14 @@ const proxyForm = reactive({
   caCertPath: "",
   clientCertPath: "",
   clientKeyPath: "",
+  command: "",
 });
 
 const proxyTypeOptions = [
   { value: "socks5", label: "SOCKS5", defaultPort: 1080 },
   { value: "socks4", label: "SOCKS4", defaultPort: 1080 },
   { value: "http", label: "HTTP CONNECT", defaultPort: 8080 },
+  { value: "command", label: "ProxyCommand", defaultPort: 0 },
 ];
 
 function onProxyTypeChange(val: string) {
@@ -238,11 +240,13 @@ function startAddProxy() {
   proxyForm.caCertPath = "";
   proxyForm.clientCertPath = "";
   proxyForm.clientKeyPath = "";
+  proxyForm.command = "";
   addingProxy.value = true;
 }
 
 async function saveQuickProxy() {
-  if (!proxyForm.name || !proxyForm.host) return;
+  const isCmd = proxyForm.proxyType === "command";
+  if (!proxyForm.name || (isCmd ? !proxyForm.command : !proxyForm.host)) return;
   try {
     const created = await proxyStore.create({ ...proxyForm });
     chain.value.push({ type: "proxy", id: created.id });
@@ -650,7 +654,7 @@ async function handleTest() {
                 <el-option
                   v-for="proxy in proxyStore.proxies"
                   :key="proxy.id"
-                  :label="`${proxy.name} (${proxy.proxyType.toUpperCase()}, ${proxy.host}:${proxy.port})`"
+                  :label="proxy.proxyType === 'command' ? `${proxy.name} (CMD)` : `${proxy.name} (${proxy.proxyType.toUpperCase()}, ${proxy.host}:${proxy.port})`"
                   :value="proxy.id"
                   :disabled="usedProxyIds.has(proxy.id)"
                 />
@@ -671,14 +675,20 @@ async function handleTest() {
                 <el-option v-for="pt in proxyTypeOptions" :key="pt.value" :label="pt.label" :value="pt.value" />
               </el-select>
             </div>
-            <div class="flex gap-2">
-              <el-input v-model="proxyForm.host" size="small" :placeholder="t('connection.proxyHost')" class="flex-1" />
-              <el-input-number v-model="proxyForm.port" size="small" :min="1" :max="65535" controls-position="right" class="w-24" />
-            </div>
-            <div class="flex gap-2">
-              <el-input v-model="proxyForm.username" size="small" :placeholder="t('connection.proxyUsername')" class="flex-1" />
-              <el-input v-model="proxyForm.password" size="small" type="password" show-password :placeholder="t('connection.proxyPassword')" class="flex-1" />
-            </div>
+            <template v-if="proxyForm.proxyType !== 'command'">
+              <div class="flex gap-2">
+                <el-input v-model="proxyForm.host" size="small" :placeholder="t('connection.proxyHost')" class="flex-1" />
+                <el-input-number v-model="proxyForm.port" size="small" :min="1" :max="65535" controls-position="right" class="w-24" />
+              </div>
+              <div class="flex gap-2">
+                <el-input v-model="proxyForm.username" size="small" :placeholder="t('connection.proxyUsername')" class="flex-1" />
+                <el-input v-model="proxyForm.password" size="small" type="password" show-password :placeholder="t('connection.proxyPassword')" class="flex-1" />
+              </div>
+            </template>
+            <template v-else>
+              <el-input v-model="proxyForm.command" type="textarea" :rows="2" size="small" :placeholder="t('connection.proxyCommandPlaceholder')" />
+              <div class="text-[10px]" style="color: var(--tm-text-muted)">{{ t("connection.proxyCommandHint") }}</div>
+            </template>
             <template v-if="proxyForm.proxyType === 'http'">
               <div class="flex items-center gap-3 pt-1">
                 <el-checkbox v-model="proxyForm.tlsEnabled" size="small">{{ t("connection.proxyTlsEnable") }}</el-checkbox>

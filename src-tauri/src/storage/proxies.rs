@@ -7,7 +7,7 @@ const SELECT_COLS: &str =
     "id, name, proxy_type, host, port, username,
      password_enc, password_keychain_id,
      tls_enabled, tls_verify, ca_cert_path, client_cert_path, client_key_path,
-     created_at, updated_at";
+     command, created_at, updated_at";
 
 fn row_to_proxy(row: &rusqlite::Row) -> rusqlite::Result<Proxy> {
     Ok(Proxy {
@@ -24,8 +24,9 @@ fn row_to_proxy(row: &rusqlite::Row) -> rusqlite::Result<Proxy> {
         ca_cert_path: row.get(10)?,
         client_cert_path: row.get(11)?,
         client_key_path: row.get(12)?,
-        created_at: row.get(13)?,
-        updated_at: row.get(14)?,
+        command: row.get(13)?,
+        created_at: row.get(14)?,
+        updated_at: row.get(15)?,
     })
 }
 
@@ -68,6 +69,7 @@ pub fn create(
     ca_cert_path: Option<&str>,
     client_cert_path: Option<&str>,
     client_key_path: Option<&str>,
+    command: Option<&str>,
     now: &str,
 ) -> Result<(), String> {
     db.with_conn(|conn| {
@@ -75,13 +77,13 @@ pub fn create(
             "INSERT INTO proxies (id, name, proxy_type, host, port, username,
                 password_enc, password_keychain_id,
                 tls_enabled, tls_verify, ca_cert_path, client_cert_path, client_key_path,
-                created_at, updated_at)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?14)",
+                command, created_at, updated_at)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?15)",
             rusqlite::params![
                 id, name, proxy_type, host, port, username,
                 password_enc, password_keychain_id,
                 tls_enabled, tls_verify, ca_cert_path, client_cert_path, client_key_path,
-                now,
+                command, now,
             ],
         )?;
         Ok(())
@@ -105,6 +107,7 @@ pub fn update(
     ca_cert_path: Option<&str>,
     client_cert_path: Option<&str>,
     client_key_path: Option<&str>,
+    command: Option<&str>,
     now: &str,
 ) -> Result<(), String> {
     db.with_conn(|conn| {
@@ -114,13 +117,13 @@ pub fn update(
                 password_keychain_id=COALESCE(?7, password_keychain_id),
                 tls_enabled=?8, tls_verify=?9,
                 ca_cert_path=?10, client_cert_path=?11, client_key_path=?12,
-                updated_at=?13
-             WHERE id=?14",
+                command=?13, updated_at=?14
+             WHERE id=?15",
             rusqlite::params![
                 name, proxy_type, host, port, username,
                 password_enc, password_keychain_id,
                 tls_enabled, tls_verify, ca_cert_path, client_cert_path, client_key_path,
-                now, id,
+                command, now, id,
             ],
         )?;
         if affected == 0 {
