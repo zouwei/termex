@@ -80,13 +80,60 @@ pub struct ProxyConfig {
 ///
 /// The returned stream can be passed to `russh::client::connect_stream()` for SSH handshake,
 /// keeping proxy logic completely decoupled from SSH protocol.
+/// Returns true if the error looks like a SOCKS5 handshake failure that
+/// could be caused by the server expecting TLS (e.g., raw bytes on a TLS port).
+pub fn is_socks5_tls_retryable(err: &SshError) -> bool {
+    let msg = err.to_string();
+    // "early eof" = server closed connection on seeing non-TLS bytes
+    // "connection reset" = TCP RST from DPI/firewall
+    // "unexpected eof" = similar to early eof
+    msg.contains("early eof")
+        || msg.contains("connection reset")
+        || msg.contains("unexpected eof")
+        || msg.contains("Connection reset")
+}
+
 pub async fn connect_via_proxy(
     proxy: &ProxyConfig,
     target_host: &str,
     target_port: u16,
 ) -> Result<Box<dyn AsyncStream>, SshError> {
     match proxy.proxy_type {
-        ProxyType::Socks5 | ProxyType::Tor => connect_socks5(proxy, target_host, target_port).await,
+        ProxyType::Socks5 | ProxyType::Tor => {
+            if proxy.tls.enabled {
+                // TLS explicitly enabled: TCP → TLS → SOCKS5
+                let addr = format!("{}:{}", proxy.host, proxy.port);
+                let tcp = TcpStream::connect(&addr).await
+                    .map_err(|e| SshError::ProxyFailed(format!("TCP connect to proxy {}: {}", addr, e)))?;
+                let tls_stream = wrap_stream_with_tls(proxy, Box::new(tcp)).await?;
+                socks5_handshake_on_stream(proxy, target_host, target_port, tls_stream).await
+            } else {
+                // Try plain SOCKS5 first; auto-retry with TLS on failure
+                match connect_socks5(proxy, target_host, target_port).await {
+                    Ok(stream) => Ok(stream),
+                    Err(e) if is_socks5_tls_retryable(&e) => {
+                        eprintln!(">>> [PROXY] SOCKS5 plain failed ({e}), retrying with TLS (5s timeout)...");
+                        let addr = format!("{}:{}", proxy.host, proxy.port);
+                        let retry = async {
+                            let tcp = TcpStream::connect(&addr).await
+                                .map_err(|e| SshError::ProxyFailed(format!("TCP connect: {}", e)))?;
+                            let tls_stream = wrap_stream_with_tls(proxy, Box::new(tcp)).await?;
+                            socks5_handshake_on_stream(proxy, target_host, target_port, tls_stream).await
+                        };
+                        match tokio::time::timeout(
+                            std::time::Duration::from_secs(5), retry
+                        ).await {
+                            Ok(Ok(stream)) => Ok(stream),
+                            _ => {
+                                eprintln!(">>> [PROXY] TLS retry failed/timed out, returning original error");
+                                Err(e)
+                            }
+                        }
+                    }
+                    Err(e) => Err(e),
+                }
+            }
+        }
         ProxyType::Socks4 => connect_socks4(proxy, target_host, target_port).await,
         ProxyType::Http => {
             if proxy.tls.enabled {
@@ -116,6 +163,19 @@ pub async fn connect_via_proxy_on_stream(
     target_port: u16,
     stream: Box<dyn AsyncStream>,
 ) -> Result<Box<dyn AsyncStream>, SshError> {
+    eprintln!(
+        ">>> [PROXY_ON_STREAM] type={:?} host={}:{} tls_enabled={} target={}:{}",
+        proxy.proxy_type, proxy.host, proxy.port, proxy.tls.enabled, target_host, target_port
+    );
+    // Wrap in TLS if enabled (applies to SOCKS5, HTTP, etc.)
+    let stream = if proxy.tls.enabled {
+        eprintln!(">>> [PROXY_ON_STREAM] Wrapping stream in TLS...");
+        wrap_stream_with_tls(proxy, stream).await?
+    } else {
+        eprintln!(">>> [PROXY_ON_STREAM] No TLS, using raw stream");
+        stream
+    };
+
     match proxy.proxy_type {
         ProxyType::Socks5 | ProxyType::Tor => {
             socks5_handshake_on_stream(proxy, target_host, target_port, stream).await
@@ -127,8 +187,6 @@ pub async fn connect_via_proxy_on_stream(
             socks4_handshake_on_stream(target_host, target_port, stream).await
         }
         ProxyType::Command => {
-            // ProxyCommand through a tunnel doesn't make sense — it spawns a local process.
-            // Fall back to direct ProxyCommand (ignoring the stream).
             let cmd = proxy.command.as_deref()
                 .ok_or_else(|| SshError::ProxyFailed("ProxyCommand is empty".into()))?;
             super::proxy_command::connect_command(
@@ -487,6 +545,80 @@ async fn connect_https(
         let first_line = response.lines().next().unwrap_or("(empty)");
         return Err(SshError::ProxyFailed(format!("HTTPS CONNECT rejected: {}", first_line)));
     }
+
+    Ok(Box::new(tls_stream))
+}
+
+/// Wraps an existing async stream in TLS using the proxy's TLS configuration.
+///
+/// Used to add TLS on top of any transport (direct TCP, SSH direct-tcpip channel, etc.)
+/// before performing a SOCKS5 or HTTP CONNECT proxy handshake.
+pub async fn wrap_stream_with_tls(
+    proxy: &ProxyConfig,
+    stream: Box<dyn AsyncStream>,
+) -> Result<Box<dyn AsyncStream>, SshError> {
+    use rustls::pki_types::ServerName;
+    use rustls_pemfile::{certs, private_key};
+    use std::io::BufReader;
+    use tokio_rustls::TlsConnector;
+
+    let mut root_store = rustls::RootCertStore::empty();
+
+    // Filter empty paths (DB may store "" instead of NULL)
+    let ca_path = proxy.tls.ca_cert_path.as_deref().filter(|p| !p.is_empty());
+    let cert_path = proxy.tls.client_cert_path.as_deref().filter(|p| !p.is_empty());
+    let key_path = proxy.tls.client_key_path.as_deref().filter(|p| !p.is_empty());
+
+    if let Some(ca_path) = ca_path {
+        let ca_data = std::fs::read(ca_path)
+            .map_err(|e| SshError::ProxyFailed(format!("Failed to read CA cert: {}", e)))?;
+        let mut reader = BufReader::new(ca_data.as_slice());
+        let ca_certs = certs(&mut reader).filter_map(|c| c.ok()).collect::<Vec<_>>();
+        for cert in ca_certs {
+            root_store.add(cert)
+                .map_err(|e| SshError::ProxyFailed(format!("Invalid CA cert: {}", e)))?;
+        }
+    } else {
+        root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    }
+
+    let tls_config_builder = rustls::ClientConfig::builder()
+        .with_root_certificates(root_store);
+
+    let tls_config = if let (Some(cert_path), Some(key_path)) = (cert_path, key_path) {
+        let cert_data = std::fs::read(cert_path)
+            .map_err(|e| SshError::ProxyFailed(format!("Failed to read client cert: {}", e)))?;
+        let mut cert_reader = BufReader::new(cert_data.as_slice());
+        let client_certs = certs(&mut cert_reader).filter_map(|c| c.ok()).collect::<Vec<_>>();
+
+        let key_data = std::fs::read(key_path)
+            .map_err(|e| SshError::ProxyFailed(format!("Failed to read client key: {}", e)))?;
+        let mut key_reader = BufReader::new(key_data.as_slice());
+        let client_key = private_key(&mut key_reader)
+            .map_err(|e| SshError::ProxyFailed(format!("Failed to parse client key: {}", e)))?
+            .ok_or_else(|| SshError::ProxyFailed("No private key found in file".into()))?;
+
+        tls_config_builder.with_client_auth_cert(client_certs, client_key)
+            .map_err(|e| SshError::ProxyFailed(format!("Client cert config error: {}", e)))?
+    } else {
+        tls_config_builder.with_no_client_auth()
+    };
+
+    let tls_config = if !proxy.tls.verify {
+        let mut cfg = tls_config;
+        cfg.dangerous().set_certificate_verifier(Arc::new(NoVerifier));
+        cfg
+    } else {
+        tls_config
+    };
+
+    let server_name = ServerName::try_from(proxy.host.clone())
+        .map_err(|_| SshError::ProxyFailed(format!("Invalid proxy hostname for TLS: {}", proxy.host)))?;
+
+    let connector = TlsConnector::from(Arc::new(tls_config));
+    let tls_stream = connector.connect(server_name, stream)
+        .await
+        .map_err(|e| SshError::ProxyFailed(format!("TLS handshake with proxy: {}", e)))?;
 
     Ok(Box::new(tls_stream))
 }

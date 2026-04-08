@@ -1,6 +1,6 @@
 [package]
 name = "termex"
-version = "0.24.1"
+version = "0.25.0"
 description = "Open-source AI-native SSH client"
 authors = ["Termex Contributors"]
 edition = "2021"
@@ -47,6 +47,10 @@ rustls-pemfile = "2"
 webpki-roots = "0.26"
 portable-pty = "0.8"
 arboard = "3"
+zeroize = { version = "1", features = ["zeroize_derive"] }
+
+[dev-dependencies]
+tempfile = "3"
 
 [profile.dev]
 incremental = true

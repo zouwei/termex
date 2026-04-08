@@ -5577,7 +5577,7 @@ dependencies = [
 
 [[package]]
 name = "termex"
-version = "0.24.0"
+version = "0.24.1"
 dependencies = [
  "arboard",
  "argon2",
@@ -5605,6 +5605,7 @@ dependencies = [
  "tar",
  "tauri",
  "tauri-build",
+ "tempfile",
  "thiserror 2.0.18",
  "time",
  "tokio",
@@ -5613,6 +5614,7 @@ dependencies = [
  "tokio-util",
  "uuid",
  "webpki-roots 0.26.11",
+ "zeroize",
 ]
 
 [[package]]

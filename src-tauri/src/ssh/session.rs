@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
 use russh::client;
+use russh::keys::PublicKey;
 use tokio_util::sync::CancellationToken;
 
-use super::auth::{self as ssh_auth, ClientHandler, ExitForwardRegistry};
+use super::auth::{self as ssh_auth, CapturedHostKey, ClientHandler, ExitForwardRegistry};
 use super::channel::{ChannelCommand, ChannelHandle, spawn_channel_task};
 use super::proxy::{self, ProxyConfig};
 use super::SshError;
@@ -29,11 +30,17 @@ pub struct SshSession {
     pub exit_proxy_cancel: Option<CancellationToken>,
     /// Exit forward registry shared with ClientHandler for forwarded-tcpip bridging.
     pub exit_forward_registry: ExitForwardRegistry,
+    /// Shared captured host key from the SSH handshake.
+    captured_host_key: CapturedHostKey,
 }
 
 impl SshSession {
-    /// Creates a new SshSession from a handle, with a fresh exit forward registry.
-    fn from_handle(handle: client::Handle<ClientHandler>, exit_reg: ExitForwardRegistry) -> Self {
+    /// Creates a new SshSession from a handle.
+    fn from_handle(
+        handle: client::Handle<ClientHandler>,
+        exit_reg: ExitForwardRegistry,
+        captured_key: CapturedHostKey,
+    ) -> Self {
         Self {
             handle,
             channel: None,
@@ -41,31 +48,59 @@ impl SshSession {
             exit_proxy_url: None,
             exit_proxy_cancel: None,
             exit_forward_registry: exit_reg,
+            captured_host_key: captured_key,
         }
     }
 
-    /// Creates a ClientHandler with exit forward registry support.
-    fn new_handler() -> (ClientHandler, ExitForwardRegistry) {
+    /// Creates a ClientHandler with exit forward registry and host key capture.
+    fn new_handler() -> (ClientHandler, ExitForwardRegistry, CapturedHostKey) {
         let reg = ssh_auth::new_exit_forward_registry();
-        let mut handler = ClientHandler::new();
+        let captured = ssh_auth::new_captured_host_key();
+        let mut handler = ClientHandler::with_host_key_capture(captured.clone());
         handler.exit_forward_registry = Some(reg.clone());
-        (handler, reg)
+        (handler, reg, captured)
+    }
+
+    /// Returns the captured server public key from the SSH handshake.
+    /// Available after `connect()` returns successfully.
+    pub fn captured_host_key(&self) -> Option<PublicKey> {
+        self.captured_host_key.lock().ok().and_then(|k| k.clone())
+    }
+
+    /// Creates a hardened SSH client config with strong algorithm preferences.
+    ///
+    /// Disables weak algorithms (hmac-sha1) per ISO 27001 A.8.24 and 等保 2.0.
+    /// Preferred order: chacha20-poly1305 > aes256-gcm > aes256-ctr.
+    fn ssh_config() -> Arc<client::Config> {
+        use std::borrow::Cow;
+
+        Arc::new(client::Config {
+            inactivity_timeout: Some(std::time::Duration::from_secs(3600)),
+            keepalive_interval: Some(std::time::Duration::from_secs(30)),
+            preferred: russh::Preferred {
+                // Strong MAC algorithms only — no hmac-sha1
+                mac: Cow::Borrowed(&[
+                    russh::mac::HMAC_SHA512_ETM,
+                    russh::mac::HMAC_SHA256_ETM,
+                    russh::mac::HMAC_SHA512,
+                    russh::mac::HMAC_SHA256,
+                ]),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
     }
 
     /// Connects to an SSH server. Authentication must be done separately.
+    /// The server's host key is captured during handshake for TOFU verification.
     pub async fn connect(host: &str, port: u16) -> Result<Self, SshError> {
-        let config = Arc::new(client::Config {
-            inactivity_timeout: Some(std::time::Duration::from_secs(3600)),
-            keepalive_interval: Some(std::time::Duration::from_secs(30)),
-            ..Default::default()
-        });
-
-        let (handler, reg) = Self::new_handler();
+        let config = Self::ssh_config();
+        let (handler, reg, captured) = Self::new_handler();
         let handle = client::connect(config, (host, port), handler)
             .await
             .map_err(|e| SshError::ConnectionFailed(e.to_string()))?;
 
-        Ok(Self::from_handle(handle, reg))
+        Ok(Self::from_handle(handle, reg, captured))
     }
 
     /// Connects to an SSH server via a bastion host using direct-tcpip tunneling.
@@ -81,20 +116,14 @@ impl SshSession {
             .await
             .map_err(|e| SshError::ChannelError(format!("Failed to open direct-tcpip channel: {}", e)))?;
 
-        // Extract the channel as a stream and establish SSH connection
         let stream = channel.into_stream();
-        let config = Arc::new(client::Config {
-            inactivity_timeout: Some(std::time::Duration::from_secs(3600)),
-            keepalive_interval: Some(std::time::Duration::from_secs(30)),
-            ..Default::default()
-        });
-
-        let (handler, reg) = Self::new_handler();
+        let config = Self::ssh_config();
+        let (handler, reg, captured) = Self::new_handler();
         let handle = client::connect_stream(config, stream, handler)
             .await
             .map_err(|e| SshError::ConnectionFailed(format!("Failed to connect through proxy: {}", e)))?;
 
-        Ok(Self::from_handle(handle, reg))
+        Ok(Self::from_handle(handle, reg, captured))
     }
 
     /// Connects to an SSH server through a network proxy (SOCKS5/SOCKS4/HTTP CONNECT).
@@ -105,19 +134,13 @@ impl SshSession {
         port: u16,
     ) -> Result<Self, SshError> {
         let stream = proxy::connect_via_proxy(proxy, host, port).await?;
-
-        let config = Arc::new(client::Config {
-            inactivity_timeout: Some(std::time::Duration::from_secs(3600)),
-            keepalive_interval: Some(std::time::Duration::from_secs(30)),
-            ..Default::default()
-        });
-
-        let (handler, reg) = Self::new_handler();
+        let config = Self::ssh_config();
+        let (handler, reg, captured) = Self::new_handler();
         let handle = client::connect_stream(config, stream, handler)
             .await
             .map_err(|e| SshError::ConnectionFailed(format!("SSH via proxy: {}", e)))?;
 
-        Ok(Self::from_handle(handle, reg))
+        Ok(Self::from_handle(handle, reg, captured))
     }
 
     /// Connects to a target host by tunneling through a network proxy that is itself
@@ -160,20 +183,15 @@ impl SshSession {
         .await?;
 
         // 4. Run SSH handshake over the proxy-tunneled stream
-        let config = Arc::new(client::Config {
-            inactivity_timeout: Some(std::time::Duration::from_secs(3600)),
-            keepalive_interval: Some(std::time::Duration::from_secs(30)),
-            ..Default::default()
-        });
-
-        let (handler, reg) = Self::new_handler();
+        let config = Self::ssh_config();
+        let (handler, reg, captured) = Self::new_handler();
         let handle = client::connect_stream(config, tunneled_stream, handler)
             .await
             .map_err(|e| {
                 SshError::ConnectionFailed(format!("SSH via tunneled proxy: {}", e))
             })?;
 
-        Ok(Self::from_handle(handle, reg))
+        Ok(Self::from_handle(handle, reg, captured))
     }
 
     /// Connects to an SSH server over a pre-established async stream.
@@ -181,18 +199,13 @@ impl SshSession {
     pub async fn connect_on_stream(
         stream: Box<dyn proxy::AsyncStream>,
     ) -> Result<Self, SshError> {
-        let config = Arc::new(client::Config {
-            inactivity_timeout: Some(std::time::Duration::from_secs(3600)),
-            keepalive_interval: Some(std::time::Duration::from_secs(30)),
-            ..Default::default()
-        });
-
-        let (handler, reg) = Self::new_handler();
+        let config = Self::ssh_config();
+        let (handler, reg, captured) = Self::new_handler();
         let handle = client::connect_stream(config, stream, handler)
             .await
             .map_err(|e| SshError::ConnectionFailed(format!("SSH via stream: {}", e)))?;
 
-        Ok(Self::from_handle(handle, reg))
+        Ok(Self::from_handle(handle, reg, captured))
     }
 
     /// Returns a mutable reference to the client handle for authentication.

@@ -626,7 +626,7 @@ struct StoredCredential {
 fn store_credential(
     value: Option<&str>,
     keychain_key: &str,
-    master_key: &Option<[u8; 32]>,
+    master_key: &Option<zeroize::Zeroizing<[u8; 32]>>,
 ) -> StoredCredential {
     let text = match value.filter(|s| !s.is_empty()) {
         Some(t) => t,
@@ -657,7 +657,7 @@ fn store_to_keychain(value: Option<&str>, keychain_key: &str) -> Option<String> 
 }
 
 /// Decrypts a legacy encrypted field (pre-keychain migration).
-fn decrypt_legacy(mk: &std::sync::RwLockReadGuard<'_, Option<[u8; 32]>>, enc: Option<Vec<u8>>) -> String {
+fn decrypt_legacy(mk: &std::sync::RwLockReadGuard<'_, Option<zeroize::Zeroizing<[u8; 32]>>>, enc: Option<Vec<u8>>) -> String {
     match (&**mk, enc) {
         (Some(key), Some(data)) => {
             aes::decrypt(key, &data)

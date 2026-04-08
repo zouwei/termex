@@ -63,17 +63,24 @@ pub fn init() -> bool {
         match entry.get_password() {
             Ok(json_str) => {
                 if let Ok(map) = serde_json::from_str::<HashMap<String, String>>(&json_str) {
+                    eprintln!(">>> [KEYCHAIN] init: loaded {} keys from OS keychain", map.len());
                     if let Ok(mut c) = cache().write() {
                         *c = map;
                     }
+                } else {
+                    eprintln!(">>> [KEYCHAIN] init: failed to parse JSON from keychain");
                 }
                 true
             }
             Err(keyring::Error::NoEntry) => {
+                eprintln!(">>> [KEYCHAIN] init: no entry found, creating empty store");
                 // First launch: create empty store
                 entry.set_password("{}").is_ok()
             }
-            Err(_) => false,
+            Err(e) => {
+                eprintln!(">>> [KEYCHAIN] init: error reading keychain: {:?}", e);
+                false
+            }
         }
     })
 }

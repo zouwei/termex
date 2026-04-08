@@ -3,6 +3,7 @@ pub mod chain_connect;
 pub mod channel;
 pub mod exit_proxy;
 pub mod forward;
+pub mod host_key;
 pub mod proxy;
 pub mod proxy_command;
 pub mod reverse_forward;

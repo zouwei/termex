@@ -1,7 +1,14 @@
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+
 use tauri::State;
 
 use crate::crypto::{aes, kdf, CryptoError};
 use crate::state::AppState;
+
+/// Failed password attempt counter (resets on app restart).
+static FAILED_ATTEMPTS: AtomicU32 = AtomicU32::new(0);
+/// Timestamp (epoch seconds) when the lockout expires.
+static LOCKOUT_UNTIL: AtomicU64 = AtomicU64::new(0);
 
 /// Checks whether a master password has been configured.
 #[tauri::command]
@@ -23,6 +30,10 @@ pub fn master_password_set(state: State<'_, AppState>, password: String) -> Resu
     if master_password_exists(state.clone())? {
         return Err("Master password already set. Use change instead.".into());
     }
+
+    // Validate password strength
+    crate::crypto::password_policy::validate_master_password(&password)
+        .map_err(|feedback| feedback.join("; "))?;
 
     let (key, salt) = kdf::derive_key_new(&password).map_err(|e| e.to_string())?;
 
@@ -51,6 +62,8 @@ pub fn master_password_set(state: State<'_, AppState>, password: String) -> Resu
     let mut mk = state.master_key.write().expect("master_key lock poisoned");
     *mk = Some(key);
 
+    crate::audit::log(&state.db, crate::audit::AuditEvent::MasterPasswordSet);
+
     Ok(())
 }
 
@@ -60,16 +73,40 @@ pub fn master_password_verify(
     state: State<'_, AppState>,
     password: String,
 ) -> Result<bool, String> {
+    // Check if currently locked out
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let lockout = LOCKOUT_UNTIL.load(Ordering::Relaxed);
+    if now < lockout {
+        let remaining = lockout - now;
+        return Err(format!("Too many failed attempts. Try again in {} seconds.", remaining));
+    }
+
     let (salt, verify_token) = load_salt_and_token(&state)?;
     let key = kdf::derive_key(&password, &salt).map_err(|e| e.to_string())?;
 
     match aes::decrypt(&key, &verify_token) {
         Ok(plaintext) if plaintext == b"TERMEX_VERIFY" => {
+            FAILED_ATTEMPTS.store(0, Ordering::Relaxed);
             let mut mk = state.master_key.write().expect("master_key lock poisoned");
             *mk = Some(key);
+            crate::audit::log(&state.db, crate::audit::AuditEvent::MasterPasswordVerified);
             Ok(true)
         }
-        _ => Ok(false),
+        _ => {
+            let attempts = FAILED_ATTEMPTS.fetch_add(1, Ordering::Relaxed) + 1;
+            if attempts >= 10 {
+                // Lock for 5 minutes
+                LOCKOUT_UNTIL.store(now + 300, Ordering::Relaxed);
+            } else if attempts >= 5 {
+                // Lock for 30 seconds
+                LOCKOUT_UNTIL.store(now + 30, Ordering::Relaxed);
+            }
+            crate::audit::log(&state.db, crate::audit::AuditEvent::MasterPasswordFailed);
+            Ok(false)
+        }
     }
 }
 
@@ -88,6 +125,10 @@ pub fn master_password_change(
         Ok(p) if p == b"TERMEX_VERIFY" => {}
         _ => return Err(CryptoError::WrongPassword.to_string()),
     }
+
+    // Validate new password strength
+    crate::crypto::password_policy::validate_master_password(&new_password)
+        .map_err(|feedback| feedback.join("; "))?;
 
     // Derive new key
     let (new_key, new_salt) = kdf::derive_key_new(&new_password).map_err(|e| e.to_string())?;
@@ -118,18 +159,19 @@ pub fn master_password_change(
     let mut mk = state.master_key.write().expect("master_key lock poisoned");
     *mk = Some(new_key);
 
+    crate::audit::log(&state.db, crate::audit::AuditEvent::MasterPasswordChanged);
+
     Ok(())
 }
 
 /// Clears the master key from memory (lock the app).
+/// Setting to `None` drops the `Zeroizing<[u8; 32]>`, which zeroes memory automatically.
 #[tauri::command]
 pub fn master_password_lock(state: State<'_, AppState>) -> Result<(), String> {
     let mut mk = state.master_key.write().expect("master_key lock poisoned");
-    if let Some(ref mut key) = *mk {
-        // Zero out the key before dropping
-        key.fill(0);
-    }
     *mk = None;
+    drop(mk);
+    crate::audit::log(&state.db, crate::audit::AuditEvent::MasterPasswordLocked);
     Ok(())
 }
 
@@ -141,6 +183,16 @@ pub fn master_password_lock(state: State<'_, AppState>) -> Result<(), String> {
 pub fn keychain_verify(state: State<'_, AppState>) -> Result<(), String> {
     state.check_keychain_verification()?;
     Ok(())
+}
+
+/// Checks password strength and returns score + feedback.
+#[tauri::command]
+pub fn check_password_strength(password: String) -> serde_json::Value {
+    let strength = crate::crypto::password_policy::check_strength(&password);
+    serde_json::json!({
+        "score": strength.score,
+        "feedback": strength.feedback,
+    })
 }
 
 // ── Internal helpers ───────────────────────────────────────────

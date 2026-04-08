@@ -5,6 +5,7 @@ use crate::keychain;
 use crate::ssh::chain_connect::{
     self, ProxyHopInfo, ResolvedHop, ResolvedTarget, SshHopInfo,
 };
+use crate::ssh::host_key::{self, HostKeyVerifyResult};
 use crate::ssh::proxy::{ProxyConfig, ProxyTlsConfig, ProxyType};
 use crate::ssh::session::SshSession;
 use crate::ssh::{auth, SshError};
@@ -55,6 +56,15 @@ pub async fn ssh_connect(
         serde_json::json!({"status": "connecting", "message": "connecting..."}),
     );
 
+    // Audit: record connection attempt
+    crate::audit::log(
+        &state.db,
+        crate::audit::AuditEvent::SshConnectAttempt {
+            server_id: server_id.clone(),
+            host: server.host.clone(),
+        },
+    );
+
     // Load connection chain from DB (V10+)
     let chain_hops = crate::storage::chain::list(&state.db, &server_id).unwrap_or_default();
 
@@ -80,10 +90,90 @@ pub async fn ssh_connect(
         post_hops,
     )
     .await
-    .map_err(|e| emit_error(&app, &status_event, &e))?;
+    .map_err(|e| {
+        crate::audit::log(
+            &state.db,
+            crate::audit::AuditEvent::SshConnectFailed {
+                server_id: server_id.clone(),
+                error: e.to_string(),
+            },
+        );
+        emit_error(&app, &status_event, &e)
+    })?;
 
     let ssh_session = result.target_session;
     let post_hops = result.post_hops;
+
+    // TOFU host key verification: check captured key against known_hosts
+    if let Some(pubkey) = ssh_session.captured_host_key() {
+        let verify_result = host_key::verify_host_key(
+            &state.db, &server.host, server.port as u16, &pubkey,
+        );
+        match &verify_result {
+            HostKeyVerifyResult::Trusted => {
+                // Key matches — continue
+            }
+            HostKeyVerifyResult::NewHost { key_type, fingerprint } => {
+                // First-time connection — auto-trust and continue
+                // (silent TOFU: trust on first use without prompting)
+                let _ = host_key::trust_host_key(
+                    &state.db, &server.host, server.port as u16, &pubkey,
+                );
+                let _ = app.emit(
+                    &status_event,
+                    serde_json::json!({
+                        "status": "host_key_trusted",
+                        "message": format!("Host key fingerprint ({key_type}): {fingerprint}"),
+                    }),
+                );
+            }
+            HostKeyVerifyResult::KeyChanged { key_type, old_fingerprint, new_fingerprint } => {
+                // Key has changed — potential MITM!
+                // Emit event to frontend and wait for user decision
+                let _ = app.emit(
+                    "ssh://host-key-changed",
+                    serde_json::json!({
+                        "host": server.host,
+                        "port": server.port,
+                        "keyType": key_type,
+                        "oldFingerprint": old_fingerprint,
+                        "newFingerprint": new_fingerprint,
+                        "sessionId": session_id,
+                    }),
+                );
+
+                // Wait for user decision via a oneshot channel stored in state
+                let (tx, rx) = tokio::sync::oneshot::channel::<bool>();
+                {
+                    let mut pending = state.pending_host_key_decisions.write().await;
+                    pending.insert(session_id.clone(), tx);
+                }
+                let accepted = tokio::time::timeout(
+                    std::time::Duration::from_secs(60),
+                    rx,
+                )
+                .await
+                .unwrap_or(Ok(false))
+                .unwrap_or(false);
+
+                if !accepted {
+                    // User rejected — disconnect
+                    let _ = ssh_session.disconnect().await;
+                    return Err(emit_error(&app, &status_event, &SshError::ConnectionFailed(
+                        "Host key verification failed: key has changed. Connection rejected by user.".into(),
+                    )));
+                }
+
+                // User accepted — update stored key
+                let _ = host_key::remove_host_key(
+                    &state.db, &server.host, server.port as u16,
+                );
+                let _ = host_key::trust_host_key(
+                    &state.db, &server.host, server.port as u16, &pubkey,
+                );
+            }
+        }
+    }
 
     // Store session FIRST (needed for exit routing to access it by session_id)
     {
@@ -126,6 +216,15 @@ pub async fn ssh_connect(
             "status": "authenticated",
             "message": format!("{}@{}:{}", server.username, server.host, server.port),
         }),
+    );
+
+    // Audit: record successful connection
+    crate::audit::log(
+        &state.db,
+        crate::audit::AuditEvent::SshConnectSuccess {
+            server_id: server_id.clone(),
+            session_id: session_id.clone(),
+        },
     );
 
     // Update last_connected
@@ -199,12 +298,12 @@ pub async fn ssh_test(
     network_proxy_id: Option<String>,
     chain: Option<Vec<crate::storage::models::ChainHopInput>>,
 ) -> Result<String, String> {
-    // Build pre-target hops: prefer chain parameter, fall back to legacy fields
-    let pre_hops = if let Some(ref chain_hops) = chain {
-        let pre: Vec<_> = chain_hops.iter().filter(|h| h.phase == "pre").collect();
-        let mut hops = Vec::new();
-        for h in pre {
-            let hop = resolve_single_hop(
+    // Build pre-target and post-target hops from chain parameter
+    let (pre_hops, post_hops) = if let Some(ref chain_hops) = chain {
+        let mut pre = Vec::new();
+        let mut post = Vec::new();
+        for h in chain_hops {
+            let resolved = resolve_single_hop(
                 &state,
                 &ChainHop {
                     id: String::new(),
@@ -212,16 +311,20 @@ pub async fn ssh_test(
                     position: 0,
                     hop_type: h.hop_type.clone(),
                     hop_id: h.hop_id.clone(),
-                    phase: "pre".into(),
+                    phase: h.phase.clone(),
                     created_at: String::new(),
                 },
             )
             .map_err(|e| e.to_string())?;
-            hops.push(hop);
+            if h.phase == "post" {
+                post.push(resolved);
+            } else {
+                pre.push(resolved);
+            }
         }
-        hops
+        (pre, post)
     } else {
-        // Legacy fallback
+        // Legacy fallback (no post-hops)
         let proxy_id = proxy_id.filter(|s| !s.is_empty());
         let network_proxy_id = network_proxy_id.filter(|s| !s.is_empty());
         let mut hops = Vec::new();
@@ -260,7 +363,7 @@ pub async fn ssh_test(
             hops.push(hop);
         }
 
-        hops
+        (hops, Vec::new())
     };
 
     // Build target with form credentials (not from DB/keychain)
@@ -275,18 +378,38 @@ pub async fn ssh_test(
         passphrase,
     };
 
-    // Connect through the chain (no post-hops for test)
+    // Connect through the chain (post-hops passed for index calculation only)
     let status_event = "ssh://test/status";
+    let post_hops_count = post_hops.len();
     let result = chain_connect::connect_chain(
         state.inner(),
         &app,
         status_event,
         pre_hops,
         resolved_target,
-        Vec::new(),
+        Vec::new(), // post_hops not passed to connect_chain (no exit routing in test)
     )
     .await
     .map_err(|e| e.to_string())?;
+
+    // Test post-target hops connectivity (exit routing nodes)
+    if !post_hops.is_empty() {
+        let hop_offset = result.proxy_chain_ids.len() + 2; // Client(1) + pre_hops + target
+        let test_result = chain_connect::test_post_hops(
+            state.inner(),
+            &app,
+            status_event,
+            &result.target_session,
+            &post_hops,
+            hop_offset,
+        )
+        .await;
+        if let Err(e) = test_result {
+            // Post-hop test failed — disconnect and report
+            let _ = result.target_session.disconnect().await;
+            return Err(e.to_string());
+        }
+    }
 
     // Disconnect target + cleanup bastion ref counts
     let proxy_chain = result.target_session.disconnect().await.map_err(|e| e.to_string())?;
@@ -314,6 +437,14 @@ pub async fn ssh_disconnect(
     state: State<'_, AppState>,
     session_id: String,
 ) -> Result<(), String> {
+    // Audit: record disconnect
+    crate::audit::log(
+        &state.db,
+        crate::audit::AuditEvent::SshDisconnect {
+            session_id: session_id.clone(),
+        },
+    );
+
     // Also close SFTP session if open
     {
         let mut sftp_sessions = state.sftp_sessions.write().await;
@@ -401,6 +532,60 @@ pub async fn ssh_exec(
         "stdout": stdout.trim_end(),
         "exitCode": exit_code,
     }))
+}
+
+/// Responds to a host key change confirmation from the frontend.
+/// Called by the frontend when the user accepts or rejects a changed host key.
+#[tauri::command]
+pub async fn ssh_host_key_respond(
+    state: State<'_, AppState>,
+    session_id: String,
+    accepted: bool,
+) -> Result<(), String> {
+    let mut pending = state.pending_host_key_decisions.write().await;
+    if let Some(tx) = pending.remove(&session_id) {
+        let _ = tx.send(accepted);
+    }
+    Ok(())
+}
+
+/// Lists all known host keys from the database.
+#[tauri::command]
+pub fn ssh_known_hosts_list(
+    state: State<'_, AppState>,
+) -> Result<Vec<serde_json::Value>, String> {
+    state
+        .db
+        .with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT host, port, key_type, fingerprint, first_seen, last_seen FROM known_hosts ORDER BY last_seen DESC",
+            )?;
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok(serde_json::json!({
+                        "host": row.get::<_, String>(0)?,
+                        "port": row.get::<_, i32>(1)?,
+                        "keyType": row.get::<_, String>(2)?,
+                        "fingerprint": row.get::<_, String>(3)?,
+                        "firstSeen": row.get::<_, String>(4)?,
+                        "lastSeen": row.get::<_, String>(5)?,
+                    }))
+                })?
+                .filter_map(|r| r.ok())
+                .collect();
+            Ok(rows)
+        })
+        .map_err(|e| e.to_string())
+}
+
+/// Removes a known host key entry.
+#[tauri::command]
+pub fn ssh_known_hosts_remove(
+    state: State<'_, AppState>,
+    host: String,
+    port: u32,
+) -> Result<(), String> {
+    host_key::remove_host_key(&state.db, &host, port as u16)
 }
 
 // ── Internal ───────────────────────────────────────────────────

@@ -1,5 +1,6 @@
 // Tauri IPC command handlers — one submodule per domain.
 
+pub mod audit;
 pub mod config;
 pub mod crypto;
 pub mod port_forward;
@@ -20,3 +21,4 @@ pub mod tor;
 pub mod git_sync;
 pub mod clipboard;
 pub mod portable;
+pub mod privacy;

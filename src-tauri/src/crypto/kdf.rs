@@ -1,5 +1,6 @@
 use argon2::{Argon2, Algorithm, Params, Version};
 use ring::rand::{SecureRandom, SystemRandom};
+use zeroize::Zeroizing;
 
 use super::CryptoError;
 
@@ -22,12 +23,14 @@ pub fn generate_salt() -> Result<[u8; SALT_LEN], CryptoError> {
 }
 
 /// Derives a 32-byte master key from a password and salt using Argon2id.
-pub fn derive_key(password: &str, salt: &[u8; SALT_LEN]) -> Result<[u8; 32], CryptoError> {
+///
+/// Returns a `Zeroizing<[u8; 32]>` that automatically zeroes the key on drop.
+pub fn derive_key(password: &str, salt: &[u8; SALT_LEN]) -> Result<Zeroizing<[u8; 32]>, CryptoError> {
     let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, argon2_params());
 
-    let mut key = [0u8; 32];
+    let mut key = Zeroizing::new([0u8; 32]);
     argon2
-        .hash_password_into(password.as_bytes(), salt, &mut key)
+        .hash_password_into(password.as_bytes(), salt, &mut *key)
         .map_err(|_| CryptoError::KdfFailed)?;
 
     Ok(key)
@@ -35,7 +38,7 @@ pub fn derive_key(password: &str, salt: &[u8; SALT_LEN]) -> Result<[u8; 32], Cry
 
 /// Derives a key and returns both the key and a newly generated salt.
 /// Used when setting a master password for the first time.
-pub fn derive_key_new(password: &str) -> Result<([u8; 32], [u8; SALT_LEN]), CryptoError> {
+pub fn derive_key_new(password: &str) -> Result<(Zeroizing<[u8; 32]>, [u8; SALT_LEN]), CryptoError> {
     let salt = generate_salt()?;
     let key = derive_key(password, &salt)?;
     Ok((key, salt))

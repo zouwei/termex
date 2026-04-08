@@ -3,6 +3,7 @@
 //! Walks an ordered list of pre-target hops (SSH bastions and network proxies) to build
 //! a tunnel reaching the target, then optionally sets up post-target hops for exit routing.
 
+use russh::client;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio_util::sync::CancellationToken;
 
@@ -82,6 +83,9 @@ enum ChainState {
     ProxyStream {
         stream: Box<dyn AsyncStream>,
         config: ProxyConfig,
+        /// If this stream came from an SSH direct-tcpip channel, the bastion's server_id.
+        /// Used to recreate the stream for SOCKS5 TLS auto-retry.
+        ssh_source: Option<String>,
     },
 }
 
@@ -106,36 +110,99 @@ pub async fn connect_chain(
 
     let mut chain_state = ChainState::Start;
 
+    // hop_index 0 = Client (always OK), actual chain starts at index 1
     for (i, hop) in pre_hops.iter().enumerate() {
         let hop_label = match hop {
             ResolvedHop::Ssh(info) => format!("SSH {}", info.host),
             ResolvedHop::Proxy(info) => format!("Proxy {}", info.name),
         };
+        let hop_index = i + 1; // +1 because Client is index 0
         let _ = app.emit(
             status_event,
             serde_json::json!({
-                "status": "connecting",
+                "status": "hop_connecting",
+                "hopIndex": hop_index,
                 "message": format!("hop {}/{}: {}...", i + 1, pre_hops.len(), hop_label),
             }),
         );
 
-        chain_state = process_hop(state, hop, chain_state, &mut proxy_chain_ids).await?;
+        match process_hop(state, hop, chain_state, &mut proxy_chain_ids).await {
+            Ok(new_state) => {
+                chain_state = new_state;
+                let _ = app.emit(
+                    status_event,
+                    serde_json::json!({
+                        "status": "hop_ok",
+                        "hopIndex": hop_index,
+                    }),
+                );
+            }
+            Err(e) => {
+                let _ = app.emit(
+                    status_event,
+                    serde_json::json!({
+                        "status": "hop_failed",
+                        "hopIndex": hop_index,
+                        "message": e.to_string(),
+                    }),
+                );
+                return Err(e);
+            }
+        }
     }
 
     // ── Phase 2: Connect to target through the final chain state ──
 
+    // Target is the last node in the connection path
+    let target_hop_index = pre_hops.len() + 1; // Client(0) + pre_hops + target
+
     let _ = app.emit(
         status_event,
         serde_json::json!({
-            "status": "connecting",
+            "status": "hop_connecting",
+            "hopIndex": target_hop_index,
             "message": format!("connecting to target {}:{}...", target.host, target.port),
         }),
     );
 
-    let mut target_session = connect_target(state, &target, chain_state).await?;
+    let mut target_session = match connect_target(state, &target, chain_state).await {
+        Ok(s) => s,
+        Err(e) => {
+            let _ = app.emit(
+                status_event,
+                serde_json::json!({
+                    "status": "hop_failed",
+                    "hopIndex": target_hop_index,
+                    "message": e.to_string(),
+                }),
+            );
+            return Err(e);
+        }
+    };
 
     // Authenticate target
-    auth_session(&mut target_session, &target).await?;
+    match auth_session(&mut target_session, &target).await {
+        Ok(()) => {
+            let _ = app.emit(
+                status_event,
+                serde_json::json!({
+                    "status": "hop_ok",
+                    "hopIndex": target_hop_index,
+                }),
+            );
+        }
+        Err(e) => {
+            let _ = app.emit(
+                status_event,
+                serde_json::json!({
+                    "status": "hop_failed",
+                    "hopIndex": target_hop_index,
+                    "message": e.to_string(),
+                }),
+            );
+            return Err(e);
+        }
+    }
 
     // Store chain info on the session
     target_session.proxy_chain = proxy_chain_ids.clone();
@@ -176,15 +243,16 @@ async fn process_hop(
         }
 
         // ── SSH hop after a proxy (proxy handshake to SSH, then SSH over stream) ──
-        (ResolvedHop::Ssh(info), ChainState::ProxyStream { stream, config }) => {
-            // Perform proxy handshake to reach the SSH hop
-            let tunneled = proxy::connect_via_proxy_on_stream(
-                &config,
-                &info.host,
-                info.port,
-                stream,
+        (ResolvedHop::Ssh(info), ChainState::ProxyStream { stream, config, .. }) => {
+            // Perform proxy handshake to reach the SSH hop (with 10s timeout)
+            let tunneled = tokio::time::timeout(
+                std::time::Duration::from_secs(10),
+                proxy::connect_via_proxy_on_stream(&config, &info.host, info.port, stream),
             )
-            .await?;
+            .await
+            .map_err(|_| SshError::ProxyFailed(
+                format!("proxy handshake to {}:{} timed out (10s)", info.host, info.port)
+            ))??;
             connect_bastion_on_stream(state, info, tunneled).await?;
             proxy_chain_ids.push(info.server_id.clone());
             Ok(ChainState::SshSession {
@@ -201,11 +269,16 @@ async fn process_hop(
             Ok(ChainState::ProxyStream {
                 stream,
                 config: info.config.clone(),
+                ssh_source: None,
             })
         }
 
         // ── Proxy hop after SSH (open direct-tcpip to proxy server) ──
         (ResolvedHop::Proxy(info), ChainState::SshSession { server_id: prev_id }) => {
+            eprintln!(
+                ">>> [CHAIN] Proxy after SSH: proxy={}:{} tls={} via bastion={}",
+                info.config.host, info.config.port, info.config.tls.enabled, prev_id
+            );
             // Open direct-tcpip channel from the SSH session to the proxy server
             let proxy_sessions = state.proxy_sessions.read().await;
             let entry = proxy_sessions.get(&prev_id).ok_or_else(|| {
@@ -232,25 +305,63 @@ async fn process_hop(
             Ok(ChainState::ProxyStream {
                 stream,
                 config: info.config.clone(),
+                ssh_source: Some(prev_id.clone()),
             })
         }
 
         // ── Proxy hop after another proxy (chain proxies) ──
-        (ResolvedHop::Proxy(info), ChainState::ProxyStream { stream: prev_stream, config: prev_config }) => {
-            // Perform the PREVIOUS proxy's handshake to reach THIS proxy's host:port
-            let stream = proxy::connect_via_proxy_on_stream(
-                &prev_config,
-                &info.config.host,
-                info.config.port,
-                prev_stream,
+        (ResolvedHop::Proxy(info), ChainState::ProxyStream { stream: prev_stream, config: prev_config, .. }) => {
+            // Perform the PREVIOUS proxy's handshake to reach THIS proxy's host:port (with 10s timeout)
+            let stream = tokio::time::timeout(
+                std::time::Duration::from_secs(10),
+                proxy::connect_via_proxy_on_stream(
+                    &prev_config, &info.config.host, info.config.port, prev_stream,
+                ),
             )
-            .await?;
+            .await
+            .map_err(|_| SshError::ProxyFailed(
+                format!("proxy handshake to {}:{} timed out (10s)", info.config.host, info.config.port)
+            ))??;
             // Now we have a raw stream to THIS proxy — store its config for deferred handshake
             Ok(ChainState::ProxyStream {
                 stream,
                 config: info.config.clone(),
+                ssh_source: None, // came from another proxy, not SSH
             })
         }
+    }
+}
+
+/// Recreates a proxy stream for TLS retry.
+/// If the original stream came from an SSH channel (ssh_source is set), opens a new direct-tcpip.
+/// Otherwise, creates a new TCP connection.
+async fn recreate_proxy_stream(
+    state: &AppState,
+    config: &ProxyConfig,
+    ssh_source: Option<&str>,
+) -> Result<Box<dyn AsyncStream>, SshError> {
+    if let Some(bastion_id) = ssh_source {
+        // Re-open direct-tcpip channel through the SSH bastion
+        let proxy_sessions = state.proxy_sessions.read().await;
+        let entry = proxy_sessions.get(bastion_id).ok_or_else(|| {
+            SshError::ConnectionFailed(format!("bastion {} not found in pool for TLS retry", bastion_id))
+        })?;
+        let channel = entry
+            .session
+            .handle()
+            .channel_open_direct_tcpip(&config.host, config.port as u32, "127.0.0.1", 0)
+            .await
+            .map_err(|e| {
+                SshError::ProxyFailed(format!(
+                    "TLS retry: failed to tunnel to proxy {}:{}: {}",
+                    config.host, config.port, e
+                ))
+            })?;
+        drop(proxy_sessions);
+        Ok(Box::new(channel.into_stream()))
+    } else {
+        // Direct TCP connection
+        create_proxy_tcp_stream(config).await
     }
 }
 
@@ -298,15 +409,44 @@ async fn connect_target(
             result
         }
 
-        ChainState::ProxyStream { stream, config } => {
-            // Perform proxy CONNECT handshake to reach the target
-            let tunneled = proxy::connect_via_proxy_on_stream(
-                &config,
-                &target.host,
-                target.port,
-                stream,
+        ChainState::ProxyStream { stream, config, ssh_source } => {
+            eprintln!(
+                ">>> [CHAIN] Target via ProxyStream: proxy={}:{} tls={} ssh_source={:?}",
+                config.host, config.port, config.tls.enabled, ssh_source
+            );
+
+            // Proxy handshake with 10s timeout (covers plain attempt + TLS retry).
+            // Without this, a silently dropped connection (GFW) hangs read_exact forever.
+            let proxy_handshake = async {
+                match proxy::connect_via_proxy_on_stream(
+                    &config, &target.host, target.port, stream,
+                ).await {
+                    Ok(s) => Ok(s),
+                    Err(e) if !config.tls.enabled
+                        && matches!(config.proxy_type, proxy::ProxyType::Socks5 | proxy::ProxyType::Tor)
+                        && proxy::is_socks5_tls_retryable(&e) =>
+                    {
+                        eprintln!(">>> [CHAIN] SOCKS5 plain failed ({e}), retrying with TLS...");
+                        let new_stream = recreate_proxy_stream(app_state, &config, ssh_source.as_deref()).await?;
+                        let mut tls_config = config.clone();
+                        tls_config.tls.enabled = true;
+                        proxy::connect_via_proxy_on_stream(
+                            &tls_config, &target.host, target.port, new_stream,
+                        ).await.map_err(|_| e) // TLS also failed → return original error
+                    }
+                    Err(e) => Err(e),
+                }
+            };
+
+            let tunneled = tokio::time::timeout(
+                std::time::Duration::from_secs(10),
+                proxy_handshake,
             )
-            .await?;
+            .await
+            .map_err(|_| SshError::ProxyFailed(
+                format!("proxy handshake timed out (10s) — {} may be unreachable from the bastion", config.host)
+            ))??;
+
             // SSH handshake over the proxy tunnel
             tokio::time::timeout(
                 std::time::Duration::from_secs(10),
@@ -549,6 +689,133 @@ fn build_proxy_url(config: &ProxyConfig) -> Result<String, SshError> {
             }
         }
         _ => Err(SshError::ProxyFailed("ProxyCommand cannot be used as exit proxy".into())),
+    }
+}
+
+/// Tests connectivity for post-target hops (exit routing nodes) without full setup.
+///
+/// Used by `ssh_test` to verify that each post-target node is reachable:
+/// - SSH hop: open direct-tcpip from previous hop → authenticate → disconnect
+/// - Proxy hop: open direct-tcpip from previous hop → TCP connectable
+///
+/// Emits hop_connecting/hop_ok/hop_failed events for the traffic light UI.
+pub async fn test_post_hops(
+    state: &AppState,
+    app: &AppHandle,
+    status_event: &str,
+    target_session: &SshSession,
+    post_hops: &[ResolvedHop],
+    hop_offset: usize, // index of the first post-hop in the connection path
+) -> Result<(), SshError> {
+    // Track the "current handle" for chaining: start from target
+    // For SSH hops, we connect + auth and can chain further.
+    // For Proxy hops, we just verify TCP reachability.
+    let mut current_handle: Option<&client::Handle<auth::ClientHandler>> = Some(target_session.handle());
+    let mut temp_sessions: Vec<SshSession> = Vec::new();
+
+    for (i, hop) in post_hops.iter().enumerate() {
+        let hop_index = hop_offset + i;
+
+        let _ = app.emit(
+            status_event,
+            serde_json::json!({ "status": "hop_connecting", "hopIndex": hop_index }),
+        );
+
+        let result = match hop {
+            ResolvedHop::Ssh(info) => {
+                // Test SSH connectivity: direct-tcpip → SSH handshake → authenticate
+                let handle = current_handle.ok_or_else(|| {
+                    SshError::ProxyFailed("No SSH session to chain from".into())
+                })?;
+
+                match tokio::time::timeout(std::time::Duration::from_secs(10), async {
+                    let mut session = SshSession::connect_via_proxy(handle, &info.host, info.port).await?;
+                    auth_hop(&mut session, info).await?;
+                    Ok::<SshSession, SshError>(session)
+                }).await {
+                    Ok(Ok(session)) => {
+                        temp_sessions.push(session);
+                        // Update current_handle to the newly connected session
+                        current_handle = Some(temp_sessions.last().unwrap().handle());
+                        Ok(())
+                    }
+                    Ok(Err(e)) => Err(e),
+                    Err(_) => Err(SshError::ConnectionFailed(
+                        format!("SSH hop {}:{} timed out (10s)", info.host, info.port),
+                    )),
+                }
+            }
+            ResolvedHop::Proxy(info) => {
+                // Test proxy reachability: open direct-tcpip to proxy host:port
+                let handle = current_handle.ok_or_else(|| {
+                    SshError::ProxyFailed("No SSH session to test proxy from".into())
+                })?;
+
+                match tokio::time::timeout(std::time::Duration::from_secs(10), async {
+                    let channel = handle
+                        .channel_open_direct_tcpip(&info.config.host, info.config.port as u32, "127.0.0.1", 0)
+                        .await
+                        .map_err(|e| SshError::ProxyFailed(format!(
+                            "Cannot reach proxy {}:{}: {}", info.config.host, info.config.port, e
+                        )))?;
+                    // TCP connected — close the channel
+                    drop(channel);
+                    Ok::<(), SshError>(())
+                }).await {
+                    Ok(Ok(())) => Ok(()),
+                    Ok(Err(e)) => Err(e),
+                    Err(_) => Err(SshError::ProxyFailed(
+                        format!("Proxy {}:{} unreachable (10s timeout)", info.config.host, info.config.port),
+                    )),
+                }
+            }
+        };
+
+        match result {
+            Ok(()) => {
+                let _ = app.emit(
+                    status_event,
+                    serde_json::json!({ "status": "hop_ok", "hopIndex": hop_index }),
+                );
+            }
+            Err(e) => {
+                let _ = app.emit(
+                    status_event,
+                    serde_json::json!({
+                        "status": "hop_failed",
+                        "hopIndex": hop_index,
+                        "message": e.to_string(),
+                    }),
+                );
+                // Clean up temp sessions
+                for s in temp_sessions {
+                    let _ = s.disconnect().await;
+                }
+                return Err(e);
+            }
+        }
+    }
+
+    // Clean up temp sessions
+    for s in temp_sessions {
+        let _ = s.disconnect().await;
+    }
+
+    Ok(())
+}
+
+/// Authenticates an SSH hop during post-target testing.
+async fn auth_hop(session: &mut SshSession, info: &SshHopInfo) -> Result<(), SshError> {
+    match info.auth_type.as_str() {
+        "key" => {
+            let key_path = info.key_path.as_deref()
+                .ok_or_else(|| SshError::AuthFailed("no key path configured".into()))?;
+            auth::auth_key(session.handle_mut(), &info.username, key_path, info.passphrase.as_deref()).await
+        }
+        _ => {
+            let password = info.password.as_deref().unwrap_or("");
+            auth::auth_password(session.handle_mut(), &info.username, password).await
+        }
     }
 }
 

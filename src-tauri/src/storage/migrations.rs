@@ -13,6 +13,7 @@ const MIGRATIONS: &[(i32, &str, &str)] = &[
     (8, "tmux and git sync support", ""),
     (9, "proxy command support", ""),
     (10, "connection chain support", MIGRATION_V10),
+    (11, "audit log", MIGRATION_V11),
 ];
 
 /// Runs all pending migrations in order.
@@ -259,6 +260,22 @@ CREATE TABLE IF NOT EXISTS connection_chain (
     FOREIGN KEY (server_id) REFERENCES servers(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_chain_server ON connection_chain(server_id, position);
+";
+
+// ============================================================
+// V11: Audit log
+// ============================================================
+
+const MIGRATION_V11: &str = "
+CREATE TABLE IF NOT EXISTS audit_log (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp   TEXT NOT NULL,
+    event_type  TEXT NOT NULL,
+    detail      TEXT,
+    source_ip   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_audit_log_time ON audit_log(timestamp);
+CREATE INDEX IF NOT EXISTS idx_audit_log_type ON audit_log(event_type);
 ";
 
 /// Migrates existing `proxy_id` / `network_proxy_id` fields to `connection_chain` rows.

@@ -1,4 +1,5 @@
 pub mod ai;
+pub mod audit;
 mod commands;
 pub mod crypto;
 pub mod keychain;
@@ -131,6 +132,9 @@ pub fn run() {
         .format_timestamp_millis()
         .init();
 
+    // Install ring as the default rustls CryptoProvider (required for TLS proxy connections)
+    let _ = tokio_rustls::rustls::crypto::ring::default_provider().install_default();
+
     // Clean up any leftover llama-server processes from previous app runs
     // This ensures we start with a clean state
     eprintln!(">>> [INIT] Cleaning up any leftover llama-server processes...");
@@ -180,6 +184,9 @@ pub fn run() {
                     let _ = app_handle.emit("keychain://verification_required", format!("Keychain access failed: {}", e));
                 }
             }
+
+            // Clean up old audit logs (90 day retention)
+            crate::audit::cleanup(&state.db, 90);
 
             let app_menu = build_menu(app)?;
             app.set_menu(app_menu.menu)?;
@@ -273,6 +280,7 @@ pub fn run() {
             commands::crypto::master_password_change,
             commands::crypto::master_password_lock,
             commands::crypto::keychain_verify,
+            commands::crypto::check_password_strength,
             // Server & group management
             commands::server::server_list,
             commands::server::server_create,
@@ -300,6 +308,9 @@ pub fn run() {
             commands::ssh::ssh_write,
             commands::ssh::ssh_resize,
             commands::ssh::ssh_exec,
+            commands::ssh::ssh_host_key_respond,
+            commands::ssh::ssh_known_hosts_list,
+            commands::ssh::ssh_known_hosts_remove,
             // Port Forwarding
             commands::port_forward::port_forward_list,
             commands::port_forward::port_forward_save,
@@ -400,6 +411,12 @@ pub fn run() {
             commands::git_sync::git_sync_pull,
             // Clipboard
             commands::clipboard::clipboard_read_text,
+            // Audit
+            commands::audit::audit_log_list,
+            commands::audit::audit_log_cleanup,
+            // Privacy (GDPR)
+            commands::privacy::privacy_erase_all_data,
+            commands::privacy::privacy_data_summary,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Termex");

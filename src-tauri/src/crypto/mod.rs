@@ -1,5 +1,6 @@
 pub mod aes;
 pub mod kdf;
+pub mod password_policy;
 
 /// Cryptography error types.
 #[derive(Debug, thiserror::Error)]

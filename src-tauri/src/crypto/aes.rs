@@ -1,6 +1,7 @@
 use ring::aead::{self, Aad, BoundKey, Nonce, NonceSequence, NONCE_LEN};
 use ring::error::Unspecified;
 use ring::rand::{SecureRandom, SystemRandom};
+use zeroize::Zeroizing;
 
 use super::CryptoError;
 
@@ -72,10 +73,10 @@ pub fn decrypt(key: &[u8; 32], encrypted: &[u8]) -> Result<Vec<u8>, CryptoError>
     let nonce_seq = OneNonceSequence::new(nonce_arr);
     let mut opening_key = aead::OpeningKey::new(unbound_key, nonce_seq);
 
-    // Decrypt in-place
-    let mut in_out = ciphertext_with_tag.to_vec();
+    // Decrypt in-place (wrap in Zeroizing so intermediate plaintext is zeroed on drop)
+    let mut in_out = Zeroizing::new(ciphertext_with_tag.to_vec());
     let plaintext = opening_key
-        .open_in_place(Aad::empty(), &mut in_out)
+        .open_in_place(Aad::empty(), &mut *in_out)
         .map_err(|_| CryptoError::DecryptFailed)?;
 
     Ok(plaintext.to_vec())

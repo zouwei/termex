@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 use tokio::sync::{RwLock as TokioRwLock, oneshot};
+use zeroize::Zeroizing;
 
 use crate::keychain;
 use crate::local_ai::LlamaServerState;
@@ -28,7 +29,8 @@ pub struct AppState {
     /// SQLCipher encrypted database connection.
     pub db: Database,
     /// Derived master encryption key — `None` when no master password is set.
-    pub master_key: RwLock<Option<[u8; 32]>>,
+    /// Wrapped in `Zeroizing` so the key is automatically zeroed on drop.
+    pub master_key: RwLock<Option<Zeroizing<[u8; 32]>>>,
     /// Active SSH sessions keyed by session_id (tokio RwLock for async SFTP access).
     pub sessions: TokioRwLock<HashMap<String, SshSession>>,
     /// Active SFTP handles keyed by session_id (Arc-wrapped for task sharing).
@@ -52,6 +54,8 @@ pub struct AppState {
     pub proxy_sessions: Arc<TokioRwLock<HashMap<String, ProxyEntry>>>,
     /// Reverse forward registry for Git Auto Sync notifications.
     pub reverse_forward_registry: SharedReverseForwardRegistry,
+    /// Pending host key decisions: session_id → oneshot sender for user's trust decision.
+    pub pending_host_key_decisions: TokioRwLock<HashMap<String, oneshot::Sender<bool>>>,
 }
 
 impl AppState {
@@ -74,6 +78,7 @@ impl AppState {
             keychain_verified: RwLock::new(None), // Will be checked once on startup
             proxy_sessions: Arc::new(TokioRwLock::new(HashMap::new())), // ProxyJump bastion pool
             reverse_forward_registry: reverse_forward::new_shared_registry(),
+            pending_host_key_decisions: TokioRwLock::new(HashMap::new()),
         };
 
         // Initialize keychain (reads single store entry → at most 1 OS prompt)

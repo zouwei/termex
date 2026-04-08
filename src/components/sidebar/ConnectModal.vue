@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, watch, computed } from "vue";
+import { ref, reactive, watch, computed, onBeforeUnmount } from "vue";
 import { useI18n } from "vue-i18n";
 import { Close, Plus, Connection, QuestionFilled } from "@element-plus/icons-vue";
 import { ElMessage } from "element-plus";
@@ -7,7 +7,7 @@ import { useServerStore } from "@/stores/serverStore";
 import { useSessionStore } from "@/stores/sessionStore";
 import { useProxyStore } from "@/stores/proxyStore";
 import { usePortForwardStore } from "@/stores/portForwardStore";
-import { tauriInvoke } from "@/utils/tauri";
+import { tauriInvoke, tauriListen } from "@/utils/tauri";
 import type { ServerInput, ChainHopInput } from "@/types/server";
 import type { ForwardInput } from "@/types/portForward";
 
@@ -35,6 +35,38 @@ const loading = ref(false);
 const testing = ref(false);
 const testResult = ref<{ ok: boolean; msg: string } | null>(null);
 const activeTab = ref("authorization");
+
+// Per-hop status tracking for connection path traffic lights
+// Key: hop index (0=Client, 1..N=chain hops), Value: "idle"|"connecting"|"ok"|"failed"
+const hopStatus = ref<Record<number, string>>({});
+let hopStatusUnlisten: (() => void) | null = null;
+
+async function startHopStatusListener() {
+  // Clean up any previous listener
+  if (hopStatusUnlisten) { hopStatusUnlisten(); hopStatusUnlisten = null; }
+
+  // Initialize: Client=ok, all other hops start as idle
+  hopStatus.value = { 0: "ok" };
+  hopStatusUnlisten = await tauriListen<{
+    status: string; hopIndex?: number; message?: string;
+  }>("ssh://test/status", (data) => {
+    if (data.hopIndex !== undefined) {
+      if (data.status === "hop_connecting") {
+        hopStatus.value = { ...hopStatus.value, [data.hopIndex]: "connecting" };
+      } else if (data.status === "hop_ok") {
+        hopStatus.value = { ...hopStatus.value, [data.hopIndex]: "ok" };
+      } else if (data.status === "hop_failed") {
+        hopStatus.value = { ...hopStatus.value, [data.hopIndex]: "failed" };
+      }
+    }
+  });
+}
+
+function stopHopStatusListener() {
+  if (hopStatusUnlisten) { hopStatusUnlisten(); hopStatusUnlisten = null; }
+}
+
+onBeforeUnmount(() => stopHopStatusListener());
 
 const form = reactive<ServerInput>({
   name: "",
@@ -164,6 +196,16 @@ const connectionPath = computed<PathHop[]>(() => {
     };
   });
 });
+
+// Traffic light class for each hop in the connection path
+function hopLightClass(hopIndex: number): string {
+  const s = hopStatus.value[hopIndex];
+  if (s === "ok") return "hop-light--ok";
+  if (s === "connecting") return "hop-light--connecting";
+  if (s === "failed") return "hop-light--failed";
+  if (s === "skipped") return "hop-light--skipped";
+  return "hop-light--idle";
+}
 
 // Build chain payload for the backend (V10 connection_chain format)
 function buildChainPayload(): ChainHopInput[] {
@@ -498,6 +540,7 @@ async function handleTest() {
   testing.value = true;
   testResult.value = null;
   syncChainToForm();
+  await startHopStatusListener();
   try {
     await tauriInvoke("ssh_test", {
       host: form.host,
@@ -516,6 +559,7 @@ async function handleTest() {
     testResult.value = { ok: false, msg: String(e) };
   } finally {
     testing.value = false;
+    stopHopStatusListener();
   }
 }
 </script>
@@ -830,7 +874,7 @@ async function handleTest() {
       <div class="space-y-1">
         <!-- Client (fixed, not draggable) -->
         <div class="flex items-center gap-2 px-2 py-1.5 rounded" style="background: var(--tm-bg-elevated)">
-          <span class="text-[10px] font-mono shrink-0" style="color: var(--tm-text-muted)">1</span>
+          <span class="hop-light shrink-0" :class="hopLightClass(0)">1</span>
           <span class="text-[10px] shrink-0" style="color: var(--tm-text-muted)">&#x27A4;</span>
           <span style="color: var(--tm-text-primary)">Client</span>
         </div>
@@ -847,7 +891,7 @@ async function handleTest() {
           :style="{ background: 'var(--tm-bg-elevated)', cursor: chain.length > 1 ? 'grab' : undefined }"
           @mousedown="onHopMouseDown(idx, $event)"
         >
-          <span class="text-[10px] font-mono shrink-0" style="color: var(--tm-text-muted)">{{ idx + 2 }}</span>
+          <span class="hop-light shrink-0" :class="hopLightClass(idx + 1)">{{ idx + 2 }}</span>
           <!-- Target node: special icon + green color -->
           <template v-if="hop.type === 'target'">
             <span class="text-[10px] shrink-0" style="color: #10b981">&#x25C9;</span>
@@ -953,5 +997,57 @@ async function handleTest() {
 
 :deep(.connect-dialog .el-input-number) {
   --el-input-number-height: 30px;
+}
+
+/* Connection path traffic light indicators */
+.hop-light {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  font-size: 9px;
+  font-family: monospace;
+  font-weight: 600;
+  line-height: 1;
+  transition: all 0.3s ease;
+}
+
+.hop-light--idle {
+  background: var(--tm-bg-base);
+  color: var(--tm-text-muted);
+  border: 1px solid var(--tm-border);
+}
+
+.hop-light--connecting {
+  background: #f59e0b;
+  color: #000;
+  border: 1px solid #f59e0b;
+  animation: hop-pulse 1s ease-in-out infinite;
+}
+
+.hop-light--ok {
+  background: #10b981;
+  color: #fff;
+  border: 1px solid #10b981;
+}
+
+.hop-light--failed {
+  background: #ef4444;
+  color: #fff;
+  border: 1px solid #ef4444;
+}
+
+.hop-light--skipped {
+  background: transparent;
+  color: var(--tm-text-muted);
+  border: 1.5px dashed #6b7280;
+  opacity: 0.5;
+}
+
+@keyframes hop-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 </style>

@@ -154,7 +154,7 @@ struct StoredProxyCred {
 fn store_proxy_credential(
     value: Option<&str>,
     keychain_key: &str,
-    master_key: &Option<[u8; 32]>,
+    master_key: &Option<zeroize::Zeroizing<[u8; 32]>>,
 ) -> StoredProxyCred {
     let text = match value.filter(|s| !s.is_empty()) {
         Some(t) => t,

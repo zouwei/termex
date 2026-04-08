@@ -21,7 +21,16 @@ pub fn new_exit_forward_registry() -> ExitForwardRegistry {
     Arc::new(RwLock::new(HashMap::new()))
 }
 
-/// SSH client handler that accepts all host keys (MVP).
+/// Shared container for the captured server public key.
+/// Used by both ClientHandler (writes) and SshSession (reads) for post-connect TOFU verification.
+pub type CapturedHostKey = Arc<std::sync::Mutex<Option<PublicKey>>>;
+
+/// Creates a new empty captured host key container.
+pub fn new_captured_host_key() -> CapturedHostKey {
+    Arc::new(std::sync::Mutex::new(None))
+}
+
+/// SSH client handler with TOFU host key capture.
 /// Also handles reverse port forwarding channels for Git Auto Sync and exit proxy.
 pub struct ClientHandler {
     /// Shared reverse forward registry for Git Sync.
@@ -30,15 +39,28 @@ pub struct ClientHandler {
     pub exit_forward_registry: Option<ExitForwardRegistry>,
     /// Tauri app handle for emitting events.
     pub app_handle: Option<tauri::AppHandle>,
+    /// Shared captured server public key from the SSH handshake.
+    pub captured_host_key: CapturedHostKey,
 }
 
 impl ClientHandler {
-    /// Creates a basic handler without reverse forwarding support.
+    /// Creates a basic handler.
     pub fn new() -> Self {
         Self {
             reverse_registry: None,
             exit_forward_registry: None,
             app_handle: None,
+            captured_host_key: new_captured_host_key(),
+        }
+    }
+
+    /// Creates a handler with a shared host key container.
+    pub fn with_host_key_capture(captured: CapturedHostKey) -> Self {
+        Self {
+            reverse_registry: None,
+            exit_forward_registry: None,
+            app_handle: None,
+            captured_host_key: captured,
         }
     }
 
@@ -51,6 +73,7 @@ impl ClientHandler {
             reverse_registry: Some(registry),
             exit_forward_registry: None,
             app_handle: Some(app_handle),
+            captured_host_key: new_captured_host_key(),
         }
     }
 }
@@ -60,11 +83,16 @@ impl client::Handler for ClientHandler {
     type Error = SshError;
 
     /// Called when the server sends its public key.
-    /// MVP: accepts all keys. Will be replaced with known_hosts verification.
+    /// Captures the key for post-connect TOFU verification and accepts the connection.
+    /// The actual verification happens in the command layer after connect returns.
     async fn check_server_key(
         &mut self,
-        _server_public_key: &PublicKey,
+        server_public_key: &PublicKey,
     ) -> Result<bool, Self::Error> {
+        // Capture the server's public key for TOFU verification
+        if let Ok(mut key) = self.captured_host_key.lock() {
+            *key = Some(server_public_key.clone());
+        }
         Ok(true)
     }
 

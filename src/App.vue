@@ -16,6 +16,7 @@ import AiPanel from "@/components/ai/AiPanel.vue";
 import UpdateDialog from "@/components/settings/UpdateDialog.vue";
 import PrivacyDialog from "@/components/settings/PrivacyDialog.vue";
 import CrossTabSearchDialog from "@/components/terminal/CrossTabSearchDialog.vue";
+import HostKeyDialog from "@/components/terminal/HostKeyDialog.vue";
 import { useSettingsStore } from "@/stores/settingsStore";
 import { checkForUpdate, shouldCheckToday } from "@/utils/update";
 import localModelsCatalog from "@/assets/local-models.json";
@@ -86,6 +87,7 @@ const keychainVerificationVisible = ref(false);
 const keychainVerificationMessage = ref("");
 const modelCatalogUpdateVisible = ref(false);
 const crossTabSearchVisible = ref(false);
+const hostKeyDialogRef = ref<InstanceType<typeof HostKeyDialog> | null>(null);
 
 // Terminal pane refs for search integration
 const terminalPaneRefs = ref<Map<string, InstanceType<typeof TerminalPane>>>(new Map());
@@ -253,6 +255,14 @@ onMounted(async () => {
   unlisteners.push(await tauriListen("menu://privacy-policy", () => {
     privacyDialogVisible.value = true;
   }));
+  // SSH host key change dialog (TOFU)
+  unlisteners.push(await tauriListen<{
+    host: string; port: number; keyType: string;
+    oldFingerprint: string; newFingerprint: string; sessionId: string;
+  }>("ssh://host-key-changed", (data) => {
+    hostKeyDialogRef.value?.show(data);
+  }));
+
   unlisteners.push(await tauriListen<string>("keychain://verification_required", (message) => {
     keychainVerificationMessage.value = message;
     keychainVerificationVisible.value = true;
@@ -361,6 +371,7 @@ onBeforeUnmount(() => {
       v-model:visible="crossTabSearchVisible"
       @jump-to-match="handleJumpToMatch"
     />
+    <HostKeyDialog ref="hostKeyDialogRef" />
 
     <!-- Model Catalog Update Dialog -->
     <el-dialog
