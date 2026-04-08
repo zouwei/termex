@@ -696,6 +696,17 @@ pub struct AutocompleteContext {
     pub shell: Option<String>,
     pub cwd: Option<String>,
     pub recent_commands: Vec<String>,
+    /// When true, prefer local AI engine over cloud providers (default: true).
+    #[serde(default = "default_true")]
+    pub prefer_local: bool,
+    /// When true, the partial command may contain sensitive data (passwords, tokens).
+    /// Cloud providers will be skipped; only local AI is allowed.
+    #[serde(default)]
+    pub has_sensitive: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// Extracts the content between the first pair of ``` markers in the text.
@@ -811,6 +822,47 @@ pub fn parse_suggestions(text: &str) -> Vec<String> {
     Vec::new()
 }
 
+/// Filters and repairs suggestions from LLM output.
+///
+/// Small models often return partial results (e.g., ["checkout", "commit"] for "git co").
+/// This function:
+/// 1. Keeps suggestions that already start with the partial command
+/// 2. Tries to repair partial suggestions by prepending the command prefix
+/// 3. Deduplicates results
+fn filter_by_prefix(suggestions: Vec<String>, partial: &str) -> Vec<String> {
+    let lower_partial = partial.to_lowercase();
+    // Extract the base command (e.g., "git" from "git co")
+    let base_cmd = partial.split_whitespace().next().unwrap_or("");
+    // Extract the subcommand prefix (e.g., "co" from "git co")
+    let sub_prefix = partial.strip_prefix(base_cmd).unwrap_or("").trim_start();
+
+    let mut result: Vec<String> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    for s in suggestions {
+        let lower_s = s.to_lowercase();
+
+        if lower_s.starts_with(&lower_partial) && s.len() > partial.len() {
+            // Already a valid full completion
+            if seen.insert(s.to_lowercase()) {
+                result.push(s);
+            }
+        } else if !base_cmd.is_empty() && !sub_prefix.is_empty() {
+            // Try to repair: the LLM might have returned just the subcommand
+            // e.g., "checkout" instead of "git checkout" for partial "git ch"
+            let lower_s_trimmed = s.trim().to_lowercase();
+            if lower_s_trimmed.starts_with(sub_prefix) {
+                let repaired = format!("{} {}", base_cmd, s.trim());
+                if repaired.len() > partial.len() && seen.insert(repaired.to_lowercase()) {
+                    result.push(repaired);
+                }
+            }
+        }
+    }
+
+    result.into_iter().take(5).collect()
+}
+
 /// Filters empty strings and truncates to at most 5 items.
 fn finalize_suggestions(items: Vec<String>) -> Vec<String> {
     items
@@ -832,32 +884,56 @@ pub async fn ai_autocomplete(
     context: AutocompleteContext,
 ) -> Result<Vec<String>, String> {
     let system = format!(
-        "You are a shell autocomplete engine. Given a partial command, suggest completions.\n\
-         Context: OS={}, Shell={}, CWD={}\n\
-         Recent commands: {}\n\
-         Rules:\n\
-         - Return a JSON array of up to 5 complete command strings\n\
-         - Each suggestion must start with the partial command\n\
-         - Order by likelihood (most probable first)\n\
-         - Output ONLY the JSON array, no explanation",
+        "You are a shell command autocomplete tool.\n\
+         OS={}, Shell={}, CWD={}\n\
+         The user has typed a partial command. Suggest complete commands they might want.\n\
+         IMPORTANT: Each suggestion must be a FULL command starting with exactly what the user typed.\n\
+         Example: if the user typed \"git co\", good suggestions are [\"git commit\", \"git checkout\"].\n\
+         Bad suggestions: [\"co\", \"git\", \"commit\"] — these do NOT start with \"git co\".\n\
+         Return ONLY a JSON array. No explanation.",
         context.os.as_deref().unwrap_or("Linux"),
         context.shell.as_deref().unwrap_or("bash"),
         context.cwd.as_deref().unwrap_or("~"),
-        if context.recent_commands.is_empty() {
-            "(none)".to_string()
-        } else {
-            context.recent_commands.join(", ")
-        },
     );
 
-    let user_msg = format!("Complete this command: {}", context.partial_command);
+    let user_msg = if context.recent_commands.is_empty() {
+        format!("Partial command: \"{}\"\nSuggest completions:", context.partial_command)
+    } else {
+        format!(
+            "Recent: {}\nPartial command: \"{}\"\nSuggest completions:",
+            context.recent_commands.join(", "),
+            context.partial_command,
+        )
+    };
 
     // Strategy: try local AI first (faster, no network), fall back to cloud provider.
+    // If has_sensitive is true, only local AI is allowed (data never leaves machine).
 
     // Check if local llama-server is running
-    let local_port = {
+    let local_port = if context.prefer_local {
         let server = state.llama_server.read().await;
         server.port
+    } else {
+        None
+    };
+
+    log::info!("[autocomplete] partial={}, prefer_local={}, has_sensitive={}, local_port={:?}",
+        context.partial_command, context.prefer_local, context.has_sensitive, local_port);
+
+    // If local_port is None but prefer_local is true, try to discover a running llama-server
+    // (handles dev hot-reload or app restart where state is lost but process survives)
+    let local_port = if local_port.is_none() && context.prefer_local {
+        let discovered = discover_llama_port().await;
+        if let Some(port) = discovered {
+            log::info!("[autocomplete] discovered llama-server on port {}, recovering state", port);
+            // Recover the state so future calls don't need to scan
+            let mut server = state.llama_server.write().await;
+            server.port = Some(port);
+            drop(server);
+        }
+        discovered
+    } else {
+        local_port
     };
 
     if local_port.is_some() {
@@ -877,18 +953,28 @@ pub async fn ai_autocomplete(
         )
         .await;
 
-        match local_result {
+        match &local_result {
             Ok(Ok(response)) => {
-                let suggestions = parse_suggestions(&response);
+                log::info!("[autocomplete] local response: {}", &response[..response.len().min(200)]);
+                let suggestions = filter_by_prefix(parse_suggestions(response), &context.partial_command);
                 if !suggestions.is_empty() {
                     return Ok(suggestions);
                 }
-                // Empty suggestions from local — fall through to cloud
+                log::info!("[autocomplete] local returned empty suggestions, falling through to cloud");
             }
-            _ => {
-                // Timeout or error from local — fall through to cloud
+            Ok(Err(e)) => {
+                log::info!("[autocomplete] local AI error: {}", e);
+            }
+            Err(_) => {
+                log::info!("[autocomplete] local AI timed out (1.5s)");
             }
         }
+    }
+
+    // Security: if command contains sensitive data, do NOT send to cloud providers
+    if context.has_sensitive {
+        log::info!("[autocomplete] skipping cloud — sensitive command");
+        return Ok(Vec::new());
     }
 
     // Fall back to default cloud provider with 3s timeout
@@ -912,8 +998,19 @@ pub async fn ai_autocomplete(
         });
 
     let (pid, provider_type, api_key_enc, api_base_url, model) = match provider_info {
-        Ok(info) => info,
-        Err(_) => return Ok(Vec::new()), // No default provider — return empty
+        Ok(info) => {
+            // Skip local-type providers in cloud fallback — we already tried local above
+            if info.1 == "local" {
+                log::info!("[autocomplete] default provider is local but engine not running, no fallback available");
+                return Ok(Vec::new());
+            }
+            log::info!("[autocomplete] using cloud provider: type={}, model={}", info.1, info.4);
+            info
+        }
+        Err(e) => {
+            log::info!("[autocomplete] no default provider configured: {}", e);
+            return Ok(Vec::new());
+        }
     };
 
     let api_key = resolve_api_key(&state, &pid, api_key_enc);
@@ -933,8 +1030,37 @@ pub async fn ai_autocomplete(
     )
     .await;
 
-    match cloud_result {
-        Ok(Ok(response)) => Ok(parse_suggestions(&response)),
-        _ => Ok(Vec::new()), // Timeout or error — return empty
+    match &cloud_result {
+        Ok(Ok(response)) => {
+            log::info!("[autocomplete] cloud response: {}", &response[..response.len().min(200)]);
+            Ok(filter_by_prefix(parse_suggestions(response), &context.partial_command))
+        }
+        Ok(Err(e)) => {
+            log::info!("[autocomplete] cloud error: {}", e);
+            Ok(Vec::new())
+        }
+        Err(_) => {
+            log::info!("[autocomplete] cloud timed out (3s)");
+            Ok(Vec::new())
+        }
     }
+}
+
+/// Scans the llama-server port range (15000-16000) for a running instance.
+/// Used to recover from state loss after dev hot-reload or app restart.
+async fn discover_llama_port() -> Option<u16> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_millis(200))
+        .build()
+        .ok()?;
+
+    for port in 15000..=15020 {
+        let url = format!("http://localhost:{}/health", port);
+        if let Ok(resp) = client.get(&url).send().await {
+            if resp.status().is_success() {
+                return Some(port);
+            }
+        }
+    }
+    None
 }

@@ -5,6 +5,7 @@ import { ElMessageBox, ElMessage } from "element-plus";
 import { Plus, Delete } from "@element-plus/icons-vue";
 import { useAiStore } from "@/stores/aiStore";
 import { useLocalAiStore } from "@/stores/localAiStore";
+import { useSettingsStore } from "@/stores/settingsStore";
 import { tauriInvoke } from "@/utils/tauri";
 import type { ProviderInput, ProviderType } from "@/types/ai";
 import {
@@ -18,6 +19,7 @@ import localModelsCatalog from "@/assets/local-models.json";
 const { t } = useI18n();
 const aiStore = useAiStore();
 const localAiStore = useLocalAiStore();
+const settingsStore = useSettingsStore();
 
 const showForm = ref(false);
 const editingId = ref<string | null>(null);
@@ -951,6 +953,77 @@ async function testConnection() {
         <el-button size="small" type="primary" @click="save">
           {{ t("connection.save") }}
         </el-button>
+      </div>
+    </div>
+
+    <!-- Smart Autocomplete Settings -->
+    <div
+      class="mt-6 p-3 rounded"
+      style="border: 1px solid var(--tm-border)"
+    >
+      <h4 class="text-xs font-medium mb-3" style="color: var(--tm-text-primary)">
+        {{ t("autocomplete.title") }}
+      </h4>
+
+      <div class="space-y-3">
+        <!-- Enable toggle -->
+        <div class="flex items-center justify-between">
+          <span class="text-xs" style="color: var(--tm-text-primary)">
+            {{ t("autocomplete.enabled") }}
+          </span>
+          <el-switch v-model="settingsStore.autocompleteEnabled" size="small" />
+        </div>
+
+        <!-- Debounce slider -->
+        <div v-if="settingsStore.autocompleteEnabled">
+          <div class="flex items-center justify-between mb-1">
+            <span class="text-xs" style="color: var(--tm-text-primary)">
+              {{ t("autocomplete.debounce") }}
+            </span>
+            <span class="text-xs" style="color: var(--tm-text-muted)">
+              {{ settingsStore.autocompleteDebounceMs }}{{ t("autocomplete.debounceUnit") }}
+            </span>
+          </div>
+          <el-slider
+            v-model="settingsStore.autocompleteDebounceMs"
+            :min="200"
+            :max="1000"
+            :step="50"
+            :show-tooltip="false"
+          />
+        </div>
+
+        <!-- Min chars slider -->
+        <div v-if="settingsStore.autocompleteEnabled">
+          <div class="flex items-center justify-between mb-1">
+            <span class="text-xs" style="color: var(--tm-text-primary)">
+              {{ t("autocomplete.minChars") }}
+            </span>
+            <span class="text-xs" style="color: var(--tm-text-muted)">
+              {{ settingsStore.autocompleteMinChars }}
+            </span>
+          </div>
+          <el-slider
+            v-model="settingsStore.autocompleteMinChars"
+            :min="1"
+            :max="5"
+            :step="1"
+            :show-tooltip="false"
+          />
+        </div>
+
+        <!-- Prefer local toggle -->
+        <div v-if="settingsStore.autocompleteEnabled" class="flex items-center justify-between">
+          <div>
+            <span class="text-xs" style="color: var(--tm-text-primary)">
+              {{ t("autocomplete.preferLocal") }}
+            </span>
+            <div class="text-[10px]" style="color: var(--tm-text-muted)">
+              {{ t("autocomplete.preferLocalHint") }}
+            </div>
+          </div>
+          <el-switch v-model="settingsStore.autocompletePreferLocal" size="small" />
+        </div>
       </div>
     </div>
   </div>

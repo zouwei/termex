@@ -78,6 +78,9 @@ export function useTerminal(sessionId: Ref<string>, options?: TerminalOptions) {
       const isMac = navigator.platform.startsWith("Mac");
       if (ev.type !== "keydown") return true;
 
+      // Skip all custom handling during IME composition (Chinese/Japanese/Korean input)
+      if (ev.isComposing || ev.keyCode === 229) return true;
+
       // Copy: Cmd+C (Mac) or Ctrl+Shift+C (Linux)
       if (ev.key === "c" && ((isMac && ev.metaKey && !ev.shiftKey) || (!isMac && ev.ctrlKey && ev.shiftKey))) {
         const sel = terminal!.getSelection();
@@ -107,6 +110,8 @@ export function useTerminal(sessionId: Ref<string>, options?: TerminalOptions) {
         // Tab: accept ghost text (only when suggestion visible)
         if (ev.key === "Tab" && !ev.shiftKey && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
           if (ac.suggestion.value) {
+            ev.preventDefault();
+            ev.stopPropagation();
             ac.accept();
             return false;
           }

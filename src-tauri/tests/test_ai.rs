@@ -261,6 +261,10 @@ fn test_autocomplete_context_deserialize() {
     assert_eq!(ctx.partial_command, "git ch");
     assert_eq!(ctx.os, Some("Linux".into()));
     assert_eq!(ctx.recent_commands.len(), 2);
+    // prefer_local defaults to true
+    assert!(ctx.prefer_local);
+    // has_sensitive defaults to false
+    assert!(!ctx.has_sensitive);
 }
 
 #[test]
@@ -271,4 +275,15 @@ fn test_autocomplete_context_minimal() {
     assert!(ctx.os.is_none());
     assert!(ctx.shell.is_none());
     assert!(ctx.cwd.is_none());
+    assert!(ctx.prefer_local); // default true
+    assert!(!ctx.has_sensitive); // default false
+}
+
+#[test]
+fn test_autocomplete_context_with_flags() {
+    let json = r#"{"partialCommand":"curl","recentCommands":[],"preferLocal":false,"hasSensitive":true}"#;
+    let ctx: AutocompleteContext = serde_json::from_str(json).unwrap();
+    assert_eq!(ctx.partial_command, "curl");
+    assert!(!ctx.prefer_local);
+    assert!(ctx.has_sensitive);
 }

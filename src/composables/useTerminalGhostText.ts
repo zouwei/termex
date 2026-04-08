@@ -33,7 +33,10 @@ export function useTerminalGhostText(
     if (currentDecoration) {
       currentDecoration.onRender((el) => {
         el.textContent = text;
-        el.style.color = "rgba(255, 255, 255, 0.35)";
+        // Use the terminal theme foreground color with reduced opacity to adapt to any theme
+        const fg = terminal.options.theme?.foreground || "#ffffff";
+        el.style.color = fg;
+        el.style.opacity = "0.35";
         el.style.fontFamily = terminal.options.fontFamily || "monospace";
         el.style.fontSize = `${terminal.options.fontSize}px`;
         el.style.pointerEvents = "none";
@@ -44,6 +47,11 @@ export function useTerminalGhostText(
         el.style.background = "transparent";
       });
     }
+  }
+
+  /** Shows a loading placeholder at the cursor. */
+  function showLoading() {
+    show("\u22EF"); // midline horizontal ellipsis "⋯"
   }
 
   /** Clears the current ghost text decoration. */
@@ -58,7 +66,7 @@ export function useTerminalGhostText(
     clear();
   }
 
-  return { show, clear, dispose };
+  return { show, showLoading, clear, dispose };
 }
 
 /**

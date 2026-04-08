@@ -1,4 +1,4 @@
-import { ref, watch, type Ref } from "vue";
+import { ref, watch, type Ref, type ShallowRef } from "vue";
 import type { Terminal } from "@xterm/xterm";
 import type { CommandLineState } from "@/types/commandTracker";
 import { useTerminalGhostText, getCellDimensions } from "./useTerminalGhostText";
@@ -7,11 +7,21 @@ import { useSessionStore } from "@/stores/sessionStore";
 import { useAiStore } from "@/stores/aiStore";
 import { tauriInvoke } from "@/utils/tauri";
 
+/** Patterns that indicate the partial command may contain sensitive data. */
+const SENSITIVE_PATTERNS = [
+  /(-p|--password|--token|--secret)\s+\S+/i,
+  /export\s+\w*(KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL)\w*\s*=/i,
+  /sshpass\s+-p\s+/i,
+  /curl\s+.*-u\s+\w+:/i,
+  /mysql\s+.*-p\S+/i,
+];
+
 /**
  * Central autocomplete composable that orchestrates:
  * - Watching command state changes (from useCommandTracker)
+ * - Security filtering for sensitive commands
  * - Debounced AI requests with cancellation
- * - Ghost text rendering
+ * - Ghost text rendering with loading indicator
  * - Popup state management
  * - LRU cache for recent completions
  */
@@ -19,6 +29,7 @@ export function useTerminalAutocomplete(
   getTerminal: () => Terminal | null,
   sessionId: Ref<string>,
   commandState: Ref<CommandLineState>,
+  recentCommands?: ShallowRef<string[]>,
 ) {
   const suggestion = ref<string | null>(null);
   const suggestions = ref<string[]>([]);
@@ -47,8 +58,7 @@ export function useTerminalAutocomplete(
       if (!commandState.value.atPrompt) return;
 
       // Only trigger for the active tab
-      const activeTab = sessionStore.activeTab;
-      if (!activeTab || activeTab.sessionId !== sessionId.value) {
+      if (sessionStore.activeSessionId !== sessionId.value) {
         dismiss();
         return;
       }
@@ -68,9 +78,19 @@ export function useTerminalAutocomplete(
     },
   );
 
+  /** Checks if a command contains sensitive data (passwords, tokens, etc.). */
+  function containsSensitive(command: string): boolean {
+    return SENSITIVE_PATTERNS.some((p) => p.test(command));
+  }
+
   async function fetchSuggestions(partialCommand: string) {
     // Global semaphore: only 1 request at a time
     if (aiStore.autocompleteInFlight) return;
+
+    // Security: skip cloud requests for commands with sensitive content.
+    // Local AI is exempt since data never leaves the machine.
+    // We still proceed and let the backend decide if local is available.
+    const hasSensitive = containsSensitive(partialCommand);
 
     const currentId = ++requestId;
     const cacheKey = partialCommand;
@@ -83,15 +103,21 @@ export function useTerminalAutocomplete(
 
     aiStore.autocompleteInFlight = true;
     loading.value = true;
+    ghostText.showLoading();
+
+    // Gather context from session metadata
+    const session = sessionStore.sessions.get(sessionId.value);
 
     try {
       const result = await tauriInvoke<string[]>("ai_autocomplete", {
         context: {
           partialCommand,
-          os: undefined,
-          shell: undefined,
-          cwd: undefined,
-          recentCommands: [],
+          os: (session as any)?.remoteOs ?? undefined,
+          shell: (session as any)?.remoteShell ?? undefined,
+          cwd: (session as any)?.remoteCwd ?? undefined,
+          recentCommands: recentCommands?.value ?? [],
+          preferLocal: settingsStore.autocompletePreferLocal,
+          hasSensitive,
         },
       });
 
@@ -107,6 +133,7 @@ export function useTerminalAutocomplete(
       applySuggestions(result, partialCommand, currentId);
     } catch {
       // Silent failure — autocomplete is optional enhancement
+      ghostText.clear();
     } finally {
       loading.value = false;
       aiStore.autocompleteInFlight = false;
@@ -131,6 +158,8 @@ export function useTerminalAutocomplete(
       suggestion.value = suffix;
       ghostText.show(suffix);
       updatePopupPosition();
+    } else {
+      ghostText.clear();
     }
   }
 
@@ -215,10 +244,24 @@ export function useTerminalAutocomplete(
     const cursorY = terminal.buffer.active.cursorY;
     const rect = container.getBoundingClientRect();
 
-    popupPos.value = {
-      x: rect.left + cursorX * dims.width,
-      y: rect.top + (cursorY + 1) * dims.height,
-    };
+    let x = rect.left + cursorX * dims.width;
+    let y = rect.top + (cursorY + 1) * dims.height;
+
+    // Viewport boundary clamping
+    const popupWidth = 400;
+    const popupHeight = Math.min(suggestions.value.length, 5) * 32 + 8;
+
+    if (x + popupWidth > window.innerWidth) {
+      x = window.innerWidth - popupWidth - 8;
+    }
+    if (y + popupHeight > window.innerHeight) {
+      // Show above cursor instead
+      y = rect.top + cursorY * dims.height - popupHeight;
+    }
+    x = Math.max(8, x);
+    y = Math.max(8, y);
+
+    popupPos.value = { x, y };
   }
 
   function dispose() {

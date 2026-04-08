@@ -42,6 +42,7 @@ const autocomplete = useTerminalAutocomplete(
   () => getTerminal(),
   sessionIdRef,
   commandTracker.state,
+  commandTracker.recentCommands,
 );
 
 const { mount, fit, setTheme, setFont, getSearchAddon, getTerminal, dispose } =
