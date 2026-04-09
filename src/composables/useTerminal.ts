@@ -18,6 +18,8 @@ import { registerTerminal, unregisterTerminal } from "@/utils/terminalRegistry";
 export interface TerminalOptions {
   /** Called after SSH shell is successfully opened. Use for tmux init, git sync, etc. */
   onShellReady?: (sessionId: string) => Promise<void>;
+  /** Called when the connection is unexpectedly lost. Use for auto-reconnect. */
+  onDisconnect?: (sessionId: string) => void;
   /** Autocomplete composable reference for keyboard shortcut integration. */
   getAutocomplete?: () => {
     suggestion: { value: string | null };
@@ -239,6 +241,7 @@ export function useTerminal(sessionId: Ref<string>, options?: TerminalOptions) {
     unlistenData = unlisten1;
 
     // SSH status events
+    const sessionStore = useSessionStore();
     const unlisten2 = await tauriListen<{ status: string; message: string }>(
       `ssh://status/${sid}`,
       (payload) => {
@@ -247,10 +250,29 @@ export function useTerminal(sessionId: Ref<string>, options?: TerminalOptions) {
           (payload.status === "disconnected" || payload.status === "exited")
         ) {
           terminal.write(`\r\n\x1b[33m[${payload.message}]\x1b[0m\r\n`);
+          sessionStore.updateStatus(sid, "disconnected");
+          options?.onDisconnect?.(sid);
         }
       },
     );
     unlistenStatus = unlisten2;
+  }
+
+  /** Rebinds event listeners to a new session ID without destroying the terminal.
+   *  Used for reconnection: the xterm instance and scrollback are preserved. */
+  async function rebindSession(oldSessionId: string, newSessionId: string) {
+    unlistenData?.();
+    unlistenStatus?.();
+    unlistenData = null;
+    unlistenStatus = null;
+
+    unregisterTerminal(oldSessionId);
+    if (terminal && searchAddon) {
+      registerTerminal(newSessionId, terminal, searchAddon);
+    }
+
+    // bindSession reads sessionId.value which should already be updated to newSessionId
+    await bindSession();
   }
 
   /** Returns the current terminal dimensions. */
@@ -344,5 +366,5 @@ export function useTerminal(sessionId: Ref<string>, options?: TerminalOptions) {
 
   onUnmounted(dispose);
 
-  return { terminalRef, mount, getDimensions, fit, setTheme, setFont, getTerminal, getSearchAddon, dispose };
+  return { terminalRef, mount, getDimensions, fit, setTheme, setFont, getTerminal, getSearchAddon, rebindSession, dispose };
 }

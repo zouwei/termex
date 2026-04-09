@@ -380,7 +380,6 @@ pub async fn ssh_test(
 
     // Connect through the chain (post-hops passed for index calculation only)
     let status_event = "ssh://test/status";
-    let post_hops_count = post_hops.len();
     let result = chain_connect::connect_chain(
         state.inner(),
         &app,
@@ -396,7 +395,6 @@ pub async fn ssh_test(
     if !post_hops.is_empty() {
         let hop_offset = result.proxy_chain_ids.len() + 2; // Client(1) + pre_hops + target
         let test_result = chain_connect::test_post_hops(
-            state.inner(),
             &app,
             status_event,
             &result.target_session,
@@ -640,42 +638,6 @@ fn load_bastion_info(
         })
 }
 
-/// Authenticates an SSH session using server info credentials.
-async fn auth_server(
-    state: &State<'_, AppState>,
-    app: &AppHandle,
-    status_event: &str,
-    session: &mut SshSession,
-    info: &ServerInfo,
-    label: &str,
-) -> Result<(), String> {
-    let auth_type = AuthType::from_str(&info.auth_type).unwrap_or(AuthType::Password);
-    match auth_type {
-        AuthType::Password => {
-            let password = keychain::get(&keychain::ssh_password_key(&info.server_id))
-                .unwrap_or_else(|_| decrypt_field(state, info.password_enc.clone()).unwrap_or_default());
-            auth::auth_password(session.handle_mut(), &info.username, &password)
-                .await
-                .map_err(|e| emit_error(app, status_event, &SshError::AuthFailed(format!("{} auth failed: {}", label, e))))?;
-        }
-        AuthType::Key => {
-            let key_path = info.key_path.as_deref()
-                .ok_or_else(|| emit_error(app, status_event, &SshError::AuthFailed(format!("{}: no key path configured", label))))?;
-            let passphrase = keychain::get(&keychain::ssh_passphrase_key(&info.server_id))
-                .ok()
-                .or_else(|| {
-                    info.passphrase_enc.clone().and_then(|enc| {
-                        decrypt_field(state, Some(enc)).ok().filter(|s| !s.is_empty())
-                    })
-                });
-            auth::auth_key(session.handle_mut(), &info.username, key_path, passphrase.as_deref())
-                .await
-                .map_err(|e| emit_error(app, status_event, &SshError::AuthFailed(format!("{} auth failed: {}", label, e))))?;
-        }
-    }
-    Ok(())
-}
-
 /// Emits an error status event and returns the error string.
 fn emit_error(app: &AppHandle, event: &str, err: &SshError) -> String {
     let _ = app.emit(
@@ -686,7 +648,6 @@ fn emit_error(app: &AppHandle, event: &str, err: &SshError) -> String {
 }
 
 /// Loads bastion server info from database (without event emission).
-/// Used by `ssh_test` which has no active status event.
 fn load_bastion_info_raw(
     state: &State<'_, AppState>,
     bastion_id: &str,
@@ -715,49 +676,6 @@ fn load_bastion_info_raw(
             )
         })
         .map_err(|e| format!("Failed to load bastion server: {}", e))
-}
-
-/// Authenticates an SSH session using server info credentials (without event emission).
-/// Used by `ssh_test` which has no active status event.
-async fn auth_server_raw(
-    state: &State<'_, AppState>,
-    session: &mut SshSession,
-    info: &ServerInfo,
-) -> Result<(), String> {
-    let auth_type = AuthType::from_str(&info.auth_type).unwrap_or(AuthType::Password);
-    match auth_type {
-        AuthType::Password => {
-            let password = keychain::get(&keychain::ssh_password_key(&info.server_id))
-                .unwrap_or_else(|_| decrypt_field(state, info.password_enc.clone()).unwrap_or_default());
-            auth::auth_password(session.handle_mut(), &info.username, &password)
-                .await
-                .map_err(|e| format!("Bastion auth failed: {}", e))?;
-        }
-        AuthType::Key => {
-            let key_path = info.key_path.as_deref()
-                .ok_or_else(|| "Bastion: no key path configured".to_string())?;
-            let passphrase = keychain::get(&keychain::ssh_passphrase_key(&info.server_id))
-                .ok()
-                .or_else(|| {
-                    info.passphrase_enc.clone().and_then(|enc| {
-                        decrypt_field(state, Some(enc)).ok().filter(|s| !s.is_empty())
-                    })
-                });
-            auth::auth_key(session.handle_mut(), &info.username, key_path, passphrase.as_deref())
-                .await
-                .map_err(|e| format!("Bastion auth failed: {}", e))?;
-        }
-    }
-    Ok(())
-}
-
-/// Decrypts an encrypted field using the master key (without event emission).
-/// Used by `ssh_test` for resolving proxy passwords.
-fn decrypt_field_raw(
-    state: &State<'_, AppState>,
-    encrypted: Option<Vec<u8>>,
-) -> Result<String, String> {
-    decrypt_field(state, encrypted)
 }
 
 /// Decrypts an encrypted field using the master key.

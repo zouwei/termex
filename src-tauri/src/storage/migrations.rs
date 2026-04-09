@@ -14,6 +14,7 @@ const MIGRATIONS: &[(i32, &str, &str)] = &[
     (9, "proxy command support", ""),
     (10, "connection chain support", MIGRATION_V10),
     (11, "audit log", MIGRATION_V11),
+    (12, "snippet manager", MIGRATION_V12),
 ];
 
 /// Runs all pending migrations in order.
@@ -276,6 +277,37 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 CREATE INDEX IF NOT EXISTS idx_audit_log_time ON audit_log(timestamp);
 CREATE INDEX IF NOT EXISTS idx_audit_log_type ON audit_log(event_type);
+";
+
+// ============================================================
+// V12: Snippet manager
+// ============================================================
+
+const MIGRATION_V12: &str = "
+CREATE TABLE IF NOT EXISTS snippet_folders (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    parent_id  TEXT,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_snippet_folders_parent ON snippet_folders(parent_id);
+
+CREATE TABLE IF NOT EXISTS snippets (
+    id           TEXT PRIMARY KEY,
+    title        TEXT NOT NULL,
+    description  TEXT,
+    command      TEXT NOT NULL,
+    tags         TEXT,
+    folder_id    TEXT,
+    is_favorite  INTEGER NOT NULL DEFAULT 0,
+    usage_count  INTEGER NOT NULL DEFAULT 0,
+    last_used_at TEXT,
+    created_at   TEXT NOT NULL,
+    updated_at   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_snippets_folder ON snippets(folder_id);
+CREATE INDEX IF NOT EXISTS idx_snippets_favorite ON snippets(is_favorite);
 ";
 
 /// Migrates existing `proxy_id` / `network_proxy_id` fields to `connection_chain` rows.

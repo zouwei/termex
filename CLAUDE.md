@@ -1,10 +1,10 @@
 # Termex - Claude Code Rules
 
-> Terminal + Experience | Open-source AI-native SSH client
+> Terminal + Experience | 以 SSH 协议为底座，打造 AI 时代永不断线的云端智能工作平台
 
 ## Project Overview
 
-Termex is an open-source, AI-native SSH client built with Tauri v2 (Rust backend) + Vue 3 (TypeScript frontend). It targets developers and ops engineers who need a beautiful, fast, intelligent, and free SSH client.
+Termex is an open-source, AI-native SSH client built with Tauri v2 (Rust backend) + Vue 3 (TypeScript frontend). Built on SSH as the foundation, it creates an always-on cloud AI workspace for the AI era. It targets developers and ops engineers who need a beautiful, fast, intelligent, and free SSH client.
 
 ## Tech Stack
 

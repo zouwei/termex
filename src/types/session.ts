@@ -1,4 +1,4 @@
-export type SessionStatus = "connecting" | "authenticated" | "connected" | "disconnected" | "error";
+export type SessionStatus = "connecting" | "authenticated" | "connected" | "disconnected" | "reconnecting" | "error";
 
 export type SessionType = "ssh" | "local";
 

@@ -9,6 +9,8 @@ export const useSessionStore = defineStore("session", () => {
   const sessions = ref<Map<string, Session>>(new Map());
   const tabs = ref<Tab[]>([]);
   const activeSessionId = ref<string | null>(null);
+  /** Session IDs being deliberately disconnected by the user (not auto-reconnect). */
+  const deliberateDisconnects = ref<Set<string>>(new Set());
 
   // ── Getters ────────────────────────────────────────────────
 
@@ -139,6 +141,9 @@ export const useSessionStore = defineStore("session", () => {
       return;
     }
 
+    // Mark as deliberate so auto-reconnect does not trigger
+    deliberateDisconnects.value.add(sessionId);
+
     if (sessionId.startsWith("local-")) {
       try {
         await tauriInvoke("local_pty_close", { sessionId });
@@ -149,6 +154,52 @@ export const useSessionStore = defineStore("session", () => {
       } catch { /* ignore */ }
     }
     closeTab(sessionId);
+    deliberateDisconnects.value.delete(sessionId);
+  }
+
+  /** Returns true if the session is being deliberately disconnected by user action. */
+  function isDeliberateDisconnect(sessionId: string): boolean {
+    return deliberateDisconnects.value.has(sessionId);
+  }
+
+  /** Reconnects a disconnected SSH session in-place.
+   *  The old session entry is replaced with the new one; the tab stays and terminal buffer is preserved. */
+  async function reconnectSession(
+    oldSessionId: string,
+    newSessionId: string,
+    cols: number,
+    rows: number,
+  ): Promise<void> {
+    const oldSession = sessions.value.get(oldSessionId);
+    if (!oldSession) return;
+
+    const { serverId, serverName, startedAt } = oldSession;
+
+    // Replace session entry
+    sessions.value.delete(oldSessionId);
+    sessions.value.set(newSessionId, {
+      id: newSessionId,
+      serverId,
+      serverName,
+      status: "authenticated",
+      startedAt,
+      type: "ssh",
+    });
+
+    // Update tab to point to new session (triggers TerminalView watcher → rebindSession)
+    const tab = tabs.value.find((t) => t.sessionId === oldSessionId);
+    if (tab) {
+      tab.sessionId = newSessionId;
+      tab.id = newSessionId;
+    }
+
+    // Update active session reference
+    if (activeSessionId.value === oldSessionId) {
+      activeSessionId.value = newSessionId;
+    }
+
+    // Open shell on the new session
+    await openShell(newSessionId, cols, rows);
   }
 
   /** Updates the status of a session. */
@@ -191,6 +242,8 @@ export const useSessionStore = defineStore("session", () => {
     openLocalTerminal,
     openShell,
     disconnect,
+    isDeliberateDisconnect,
+    reconnectSession,
     updateStatus,
     setActive,
     closeTab,

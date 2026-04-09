@@ -5577,7 +5577,7 @@ dependencies = [
 
 [[package]]
 name = "termex"
-version = "0.26.0"
+version = "0.26.1"
 dependencies = [
  "arboard",
  "argon2",
@@ -5586,6 +5586,7 @@ dependencies = [
  "env_logger",
  "flate2",
  "futures-util",
+ "glob",
  "hex",
  "keyring",
  "log",
@@ -5614,6 +5615,7 @@ dependencies = [
  "tokio-util",
  "uuid",
  "webpki-roots 0.26.11",
+ "whoami",
  "zeroize",
 ]
 
@@ -6242,6 +6244,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "wasite"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b8dad83b4f25e74f184f64c43b150b91efe7647395b42289f38e50566d82855b"
+
+[[package]]
 name = "wasm-bindgen"
 version = "0.2.114"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6545,6 +6553,17 @@ name = "weezl"
 version = "0.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a28ac98ddc8b9274cb41bb4d9d4d5c425b6020c50c46f25559911905610b4a88"
+
+[[package]]
+name = "whoami"
+version = "1.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d4a4db5077702ca3015d3d02d74974948aba2ad9e12ab7df718ee64ccd7e97d"
+dependencies = [
+ "libredox",
+ "wasite",
+ "web-sys",
+]
 
 [[package]]
 name = "winapi"

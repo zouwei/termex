@@ -647,51 +647,6 @@ async fn auth_bastion(session: &mut SshSession, info: &SshHopInfo) -> Result<(),
     }
 }
 
-// ── Utilities ──────────────────────────────────────────────────
-
-/// Percent-encodes a string for use in a URL userinfo component.
-/// Encodes all characters except unreserved ones (RFC 3986: A-Z a-z 0-9 - . _ ~).
-fn url_encode(s: &str) -> String {
-    let mut result = String::with_capacity(s.len() * 2);
-    for b in s.bytes() {
-        match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
-                result.push(b as char);
-            }
-            _ => {
-                result.push_str(&format!("%{:02X}", b));
-            }
-        }
-    }
-    result
-}
-
-// ── Exit routing (post-target) ─────────────────────────────────
-
-/// Builds a proxy URL string from a ProxyConfig (for non-TLS proxies).
-fn build_proxy_url(config: &ProxyConfig) -> Result<String, SshError> {
-    match config.proxy_type {
-        super::proxy::ProxyType::Socks5 | super::proxy::ProxyType::Tor => {
-            if let (Some(user), Some(pass)) = (&config.username, &config.password) {
-                Ok(format!("socks5://{}:{}@{}:{}", url_encode(user), url_encode(pass), config.host, config.port))
-            } else {
-                Ok(format!("socks5://{}:{}", config.host, config.port))
-            }
-        }
-        super::proxy::ProxyType::Socks4 => {
-            Ok(format!("socks4://{}:{}", config.host, config.port))
-        }
-        super::proxy::ProxyType::Http => {
-            if let (Some(user), Some(pass)) = (&config.username, &config.password) {
-                Ok(format!("http://{}:{}@{}:{}", url_encode(user), url_encode(pass), config.host, config.port))
-            } else {
-                Ok(format!("http://{}:{}", config.host, config.port))
-            }
-        }
-        _ => Err(SshError::ProxyFailed("ProxyCommand cannot be used as exit proxy".into())),
-    }
-}
-
 /// Tests connectivity for post-target hops (exit routing nodes) without full setup.
 ///
 /// Used by `ssh_test` to verify that each post-target node is reachable:
@@ -700,7 +655,6 @@ fn build_proxy_url(config: &ProxyConfig) -> Result<String, SshError> {
 ///
 /// Emits hop_connecting/hop_ok/hop_failed events for the traffic light UI.
 pub async fn test_post_hops(
-    state: &AppState,
     app: &AppHandle,
     status_event: &str,
     target_session: &SshSession,

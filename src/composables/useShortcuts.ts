@@ -12,6 +12,7 @@ interface ShortcutHandlers {
   openSettings: () => void;
   openSearch?: () => void;
   openCrossTabSearch?: () => void;
+  openSnippetPalette?: () => void;
 }
 
 /**
@@ -37,6 +38,14 @@ export function useShortcuts(handlers: ShortcutHandlers) {
 
   function onKeydown(e: KeyboardEvent) {
     const bindings = settingsStore.keybindings;
+
+    // Snippet Palette: Cmd/Ctrl+Shift+S
+    if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "s") {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      handlers.openSnippetPalette?.();
+      return;
+    }
 
     // Check non-goToTab actions first
     for (const [action, handler] of Object.entries(actionHandlers)) {

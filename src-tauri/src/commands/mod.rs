@@ -22,3 +22,5 @@ pub mod git_sync;
 pub mod clipboard;
 pub mod portable;
 pub mod privacy;
+pub mod snippet;
+pub mod ssh_config;

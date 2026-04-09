@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod chain_connect;
 pub mod channel;
+pub mod config_parser;
 pub mod exit_proxy;
 pub mod forward;
 pub mod host_key;

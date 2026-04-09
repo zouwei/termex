@@ -1,7 +1,7 @@
 [package]
 name = "termex"
-version = "0.26.0"
-description = "Open-source AI-native SSH client"
+version = "0.26.1"
+description = "Open-source AI-native SSH client — Always-on cloud AI workspace powered by SSH"
 authors = ["Termex Contributors"]
 edition = "2021"
 license = "MIT"
@@ -48,6 +48,8 @@ webpki-roots = "0.26"
 portable-pty = "0.8"
 arboard = "3"
 zeroize = { version = "1", features = ["zeroize_derive"] }
+glob = "0.3"
+whoami = "1"
 
 [dev-dependencies]
 tempfile = "3"

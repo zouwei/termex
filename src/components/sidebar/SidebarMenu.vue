@@ -19,6 +19,7 @@ const { exportConfig, importConfig } = useConfigExport();
 const emit = defineEmits<{
   (e: "new-host"): void;
   (e: "settings"): void;
+  (e: "import-ssh-config"): void;
 }>();
 
 async function createGroup() {
@@ -53,6 +54,9 @@ function handleCommand(cmd: string) {
     case "export":
       exportConfig();
       break;
+    case "import-ssh-config":
+      emit("import-ssh-config");
+      break;
     case "settings":
       emit("settings");
       break;
@@ -82,6 +86,9 @@ function handleCommand(cmd: string) {
         </el-dropdown-item>
         <el-dropdown-item :icon="Download" command="export">
           {{ t("sidebar.exportConfig") }}
+        </el-dropdown-item>
+        <el-dropdown-item :icon="Upload" command="import-ssh-config">
+          {{ t("sidebar.importSshConfig") }}
         </el-dropdown-item>
         <el-dropdown-item divided :icon="Setting" command="settings">
           {{ t("settings.title") }}

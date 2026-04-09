@@ -228,6 +228,7 @@ defineExpose({
   fit: () => terminalViewRef.value?.fit(),
   dispose: () => terminalViewRef.value?.dispose(),
   openSearch: () => terminalViewRef.value?.openSearch(),
+  manualReconnect: () => terminalViewRef.value?.manualReconnect(),
   get search() {
     return terminalViewRef.value?.search;
   },

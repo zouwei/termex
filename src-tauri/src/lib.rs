@@ -418,6 +418,22 @@ pub fn run() {
             // Privacy (GDPR)
             commands::privacy::privacy_erase_all_data,
             commands::privacy::privacy_data_summary,
+            // Snippets
+            commands::snippet::snippet_list,
+            commands::snippet::snippet_create,
+            commands::snippet::snippet_update,
+            commands::snippet::snippet_delete,
+            commands::snippet::snippet_execute,
+            commands::snippet::snippet_extract_variables,
+            commands::snippet::snippet_folder_list,
+            commands::snippet::snippet_folder_create,
+            commands::snippet::snippet_folder_update,
+            commands::snippet::snippet_folder_delete,
+            // SSH Config Import
+            commands::ssh_config::ssh_config_preview,
+            commands::ssh_config::ssh_config_import,
+            commands::ssh_config::ssh_config_import_termius,
+            commands::ssh_config::ssh_config_import_csv,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Termex");

@@ -117,6 +117,14 @@ function handleJumpToMatch(match: { sessionId: string }) {
   }
 }
 
+function handleReconnect(sessionId: string) {
+  const tab = sessionStore.tabs.find((t) => t.sessionId === sessionId);
+  if (tab) {
+    const pane = terminalPaneRefs.value.get(tab.tabKey);
+    pane?.manualReconnect();
+  }
+}
+
 function openNewConnection() {
   editServerId.value = null;
   connectModalVisible.value = true;
@@ -294,6 +302,7 @@ onBeforeUnmount(() => {
       @settings="settingsModalVisible = true"
       @toggle-ai="aiPanelVisible = !aiPanelVisible"
       @new-host="openNewConnection"
+      @reconnect="handleReconnect"
     />
 
     <!-- Main area -->

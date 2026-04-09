@@ -482,7 +482,7 @@ async fn connect_https(
         root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
     }
 
-    let mut tls_config_builder = rustls::ClientConfig::builder()
+    let tls_config_builder = rustls::ClientConfig::builder()
         .with_root_certificates(root_store);
 
     // Load client certificate + key for mTLS

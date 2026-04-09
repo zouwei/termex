@@ -647,15 +647,6 @@ fn store_credential(
     StoredCredential { keychain_id, encrypted }
 }
 
-/// Legacy helper for backward compat (returns only keychain_id).
-fn store_to_keychain(value: Option<&str>, keychain_key: &str) -> Option<String> {
-    let text = value.filter(|s| !s.is_empty())?;
-    match keychain::store(keychain_key, text) {
-        Ok(()) => Some(keychain_key.to_string()),
-        Err(_) => None,
-    }
-}
-
 /// Decrypts a legacy encrypted field (pre-keychain migration).
 fn decrypt_legacy(mk: &std::sync::RwLockReadGuard<'_, Option<zeroize::Zeroizing<[u8; 32]>>>, enc: Option<Vec<u8>>) -> String {
     match (&**mk, enc) {

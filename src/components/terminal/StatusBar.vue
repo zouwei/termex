@@ -29,6 +29,8 @@ const statusText = computed(() => {
       return "Connecting...";
     case "connected":
       return `Connected | ${session.serverName}`;
+    case "reconnecting":
+      return "Reconnecting...";
     case "disconnected":
       return "Disconnected";
     case "error":
@@ -57,6 +59,7 @@ const statusColor = computed(() => {
     case "connected":
       return "text-green-500";
     case "connecting":
+    case "reconnecting":
       return "text-yellow-500";
     case "error":
       return "text-red-500";

@@ -6,6 +6,8 @@ import { useSettingsStore } from "@/stores/settingsStore";
 import SidebarMenu from "./SidebarMenu.vue";
 import ServerTree from "./ServerTree.vue";
 import ProxyTree from "./ProxyTree.vue";
+import SnippetPanel from "@/components/snippet/SnippetPanel.vue";
+import SshConfigImportDialog from "./SshConfigImportDialog.vue";
 
 const emit = defineEmits<{
   (e: "new-host"): void;
@@ -16,12 +18,19 @@ const emit = defineEmits<{
 const serverStore = useServerStore();
 const settingsStore = useSettingsStore();
 const searchActive = ref(false);
+const sshConfigDialogVisible = ref(false);
 
-// View mode: "servers" or "proxies"
-const sidebarView = ref<"servers" | "proxies">("servers");
+// View mode: "servers", "proxies", or "snippets"
+const sidebarView = ref<"servers" | "proxies" | "snippets">("servers");
 
 function toggleView() {
-  sidebarView.value = sidebarView.value === "servers" ? "proxies" : "servers";
+  const order: Array<"servers" | "proxies" | "snippets"> = ["servers", "proxies", "snippets"];
+  const idx = order.indexOf(sidebarView.value);
+  sidebarView.value = order[(idx + 1) % order.length];
+}
+
+function onSshConfigImported() {
+  serverStore.fetchAll();
 }
 
 // Transition class name based on setting
@@ -49,20 +58,25 @@ function onSearchBlur() {
     <!-- Header -->
     <div class="h-9 flex items-center px-2 gap-1 shrink-0" style="border-bottom: 1px solid var(--tm-border)">
       <template v-if="!searchActive">
-        <SidebarMenu @new-host="emit('new-host')" @settings="emit('settings')" />
+        <SidebarMenu @new-host="emit('new-host')" @settings="emit('settings')" @import-ssh-config="sshConfigDialogVisible = true" />
         <div class="flex-1" />
-        <!-- View toggle: servers ↔ proxies -->
+        <!-- View toggle: servers → proxies → snippets -->
         <button
           class="tm-icon-btn p-1.5 rounded transition-colors"
-          :title="sidebarView === 'servers' ? $t('connection.proxy') : $t('sidebar.servers')"
+          :title="sidebarView === 'servers' ? $t('connection.proxy') : sidebarView === 'proxies' ? $t('sidebar.snippets') : $t('sidebar.servers')"
           @click="toggleView"
         >
-          <!-- Server icon when showing proxies (click to go back) -->
+          <!-- Server icon when showing proxies or snippets (click to cycle) -->
           <svg v-if="sidebarView === 'proxies'" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="2" y="2" width="20" height="8" rx="2" />
             <rect x="2" y="14" width="20" height="8" rx="2" />
             <circle cx="6" cy="6" r="1" fill="currentColor" />
             <circle cx="6" cy="18" r="1" fill="currentColor" />
+          </svg>
+          <!-- Code/brackets icon when showing snippets (click to go back to servers) -->
+          <svg v-else-if="sidebarView === 'snippets'" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="16 18 22 12 16 6" />
+            <polyline points="8 6 2 12 8 18" />
           </svg>
           <!-- Globe icon when showing servers (click to switch to proxies) -->
           <svg v-else class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -107,11 +121,20 @@ function onSearchBlur() {
             @edit-server="(id: string) => emit('edit-server', id)"
           />
         </div>
-        <div v-else key="proxies" style="min-height: 100%">
+        <div v-else-if="sidebarView === 'proxies'" key="proxies" style="min-height: 100%">
           <ProxyTree />
+        </div>
+        <div v-else-if="sidebarView === 'snippets'" key="snippets" class="py-1" style="min-height: 100%">
+          <SnippetPanel />
         </div>
       </transition>
     </div>
+
+    <!-- SSH Config Import Dialog -->
+    <SshConfigImportDialog
+      v-model="sshConfigDialogVisible"
+      @imported="onSshConfigImported"
+    />
   </aside>
 </template>
 

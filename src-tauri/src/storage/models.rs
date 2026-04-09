@@ -287,6 +287,63 @@ pub struct AiProvider {
 // Known Host
 // ============================================================
 
+// ============================================================
+// Snippet
+// ============================================================
+
+/// A saved command snippet.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Snippet {
+    pub id: String,
+    pub title: String,
+    pub description: Option<String>,
+    pub command: String,
+    pub tags: Vec<String>,
+    pub folder_id: Option<String>,
+    pub is_favorite: bool,
+    pub usage_count: i32,
+    pub last_used_at: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// Input for creating or updating a snippet.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SnippetInput {
+    pub title: String,
+    pub description: Option<String>,
+    pub command: String,
+    pub tags: Vec<String>,
+    pub folder_id: Option<String>,
+    pub is_favorite: bool,
+}
+
+/// A folder for organizing snippets.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SnippetFolder {
+    pub id: String,
+    pub name: String,
+    pub parent_id: Option<String>,
+    pub sort_order: i32,
+    pub created_at: String,
+}
+
+/// Input for creating or updating a snippet folder.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SnippetFolderInput {
+    pub name: String,
+    pub parent_id: Option<String>,
+    pub sort_order: i32,
+}
+
+// ============================================================
+// Known Host
+// ============================================================
+
 /// A known SSH host fingerprint entry.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

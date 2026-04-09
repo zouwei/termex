@@ -4,7 +4,6 @@ import { useI18n } from "vue-i18n";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Close, Setting } from "@element-plus/icons-vue";
 import { useSessionStore } from "@/stores/sessionStore";
-import { tauriInvoke } from "@/utils/tauri";
 import ContextMenu from "@/components/sidebar/ContextMenu.vue";
 import type { MenuItem } from "@/components/sidebar/ContextMenu.vue";
 
@@ -42,6 +41,7 @@ const emit = defineEmits<{
   (e: "settings"): void;
   (e: "toggle-ai"): void;
   (e: "new-host"): void;
+  (e: "reconnect", sessionId: string): void;
 }>();
 
 const sessionStore = useSessionStore();
@@ -134,62 +134,13 @@ async function onCtxSelect(action: string) {
     if (!tab) return;
     startRename(tab.tabKey);
   } else if (action === "reconnect") {
-    const session = sessionStore.sessions.get(sid);
-    if (!session) return;
-
-    const tabTitle = tab?.title ?? session.serverName;
-    const { serverId, serverName } = session;
-    const tabIdx = sessionStore.tabs.findIndex((t) => t.sessionId === sid);
-    const wasActive = sessionStore.activeSessionId === sid;
-
-    // 1. Disconnect backend only (don't remove tab or change active)
-    try { await tauriInvoke("ssh_disconnect", { sessionId: sid }); } catch { /* ignore */ }
-    sessionStore.sessions.delete(sid);
-
-    // 2. Update existing tab in-place to "connecting" state
-    const existingTab = sessionStore.tabs[tabIdx];
-    if (!existingTab) return;
-
-    const placeholderId = `connecting-${existingTab.tabKey}`;
-    existingTab.sessionId = placeholderId;
-    existingTab.id = placeholderId;
-    existingTab.title = tabTitle;
-    sessionStore.sessions.set(placeholderId, {
-      id: placeholderId, serverId, serverName,
-      status: "connecting", startedAt: new Date().toISOString(),
-      type: "ssh",
-    });
-    if (wasActive) sessionStore.activeSessionId = placeholderId;
-
-    // 3. Connect in background
-    try {
-      const realId = await tauriInvoke<string>("ssh_connect", { serverId });
-      sessionStore.sessions.delete(placeholderId);
-      existingTab.sessionId = realId;
-      existingTab.id = realId;
-      sessionStore.sessions.set(realId, {
-        id: realId, serverId, serverName,
-        status: "authenticated", startedAt: existingTab.title,
-        type: "ssh",
-      });
-      if (sessionStore.activeSessionId === placeholderId) {
-        sessionStore.activeSessionId = realId;
-      }
-
-    } catch {
-      const s = sessionStore.sessions.get(placeholderId);
-      if (s) s.status = "error";
-    }
+    emit("reconnect", sid);
   } else if (action === "reconnect-all") {
-    const allSessions = [...sessionStore.sessions.values()];
-    const allTabs = [...sessionStore.tabs];
-
-    for (const t of allTabs) {
-      sessionStore.disconnect(t.sessionId);
-    }
-
-    for (const s of allSessions) {
-      await sessionStore.connect(s.serverId, s.serverName);
+    for (const t of [...sessionStore.tabs]) {
+      const s = sessionStore.sessions.get(t.sessionId);
+      if (s && s.type === "ssh") {
+        emit("reconnect", t.sessionId);
+      }
     }
   }
 }
@@ -221,7 +172,7 @@ async function onCtxSelect(action: string) {
         class="w-1.5 h-1.5 rounded-full shrink-0"
         :class="{
           'bg-green-500': sessionStore.sessions.get(tab.sessionId)?.status === 'connected',
-          'bg-yellow-500 animate-pulse': sessionStore.sessions.get(tab.sessionId)?.status === 'connecting',
+          'bg-yellow-500 animate-pulse': ['connecting', 'reconnecting'].includes(sessionStore.sessions.get(tab.sessionId)?.status ?? ''),
           'bg-gray-500': sessionStore.sessions.get(tab.sessionId)?.status === 'disconnected',
           'bg-red-500': sessionStore.sessions.get(tab.sessionId)?.status === 'error',
         }"

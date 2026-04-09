@@ -2,7 +2,7 @@
 import { ref, onMounted } from "vue";
 import { useI18n } from "vue-i18n";
 import type { AiMessage } from "@/types/ai";
-import { CopyDocument, Position, Loading } from "@element-plus/icons-vue";
+import { CopyDocument, Position, Loading, Collection } from "@element-plus/icons-vue";
 import { ElMessage } from "element-plus";
 import { tauriInvoke } from "@/utils/tauri";
 import { useAiStore } from "@/stores/aiStore";
@@ -21,6 +21,7 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{
   (e: "insert", command: string): void;
+  (e: "save-snippet", content: string): void;
 }>();
 
 const models = ref<DownloadedModel[]>([]);
@@ -35,6 +36,10 @@ function copyToClipboard() {
 
 function insertCommand() {
   emit("insert", props.message.content);
+}
+
+function saveAsSnippet() {
+  emit("save-snippet", props.message.content);
 }
 
 async function loadModels() {
@@ -205,6 +210,9 @@ onMounted(() => {
       </el-button>
       <el-button text size="small" :icon="Position" @click="insertCommand">
         {{ t("ai.insert") }}
+      </el-button>
+      <el-button text size="small" :icon="Collection" @click="saveAsSnippet">
+        {{ t("ai.saveAsSnippet") }}
       </el-button>
     </div>
   </div>
