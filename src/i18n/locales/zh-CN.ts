@@ -518,6 +518,7 @@ export default {
     resultSummary: "\u5DF2\u5BFC\u5165 {imported} \u4E2A\uFF0C\u8DF3\u8FC7 {skipped} \u4E2A\uFF0C{errors} \u4E2A\u9519\u8BEF",
     errorDetails: "\u9519\u8BEF\u8BE6\u60C5",
     done: "\u5B8C\u6210",
+    nonInteractive: "\u975E SSH",
   },
   snippet: {
     title: "\u547D\u4EE4\u7247\u6BB5",

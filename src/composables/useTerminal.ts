@@ -64,13 +64,17 @@ export function useTerminal(sessionId: Ref<string>, options?: TerminalOptions) {
 
     terminal.open(el);
 
-    // Try WebGL renderer, fall back to canvas
-    try {
-      webglAddon = new WebglAddon();
-      terminal.loadAddon(webglAddon);
-    } catch {
-      webglAddon = null;
-    }
+    // Try WebGL renderer, fall back to canvas.
+    // Deferred via requestAnimationFrame to avoid M1 Metal backend initialization hang.
+    requestAnimationFrame(() => {
+      if (!terminal) return;
+      try {
+        webglAddon = new WebglAddon();
+        terminal.loadAddon(webglAddon);
+      } catch {
+        webglAddon = null;
+      }
+    });
 
     // Copy/Paste keyboard support
     // - Mac: Cmd+C copies selection (falls through to terminal SIGINT if no selection)

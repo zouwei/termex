@@ -301,10 +301,11 @@ defineExpose({
 
 <template>
   <div class="w-full h-full relative overflow-hidden" style="background: var(--tm-terminal-bg)">
-    <!-- Terminal container -->
+    <!-- Terminal container (padding here so fitAddon calculates rows correctly) -->
     <div
       ref="containerRef"
-      class="w-full h-full"
+      class="w-full h-full box-border"
+      style="padding: 6px"
       @contextmenu="onTerminalContextMenu"
     />
 
@@ -400,7 +401,4 @@ defineExpose({
 </template>
 
 <style scoped>
-:deep(.xterm) {
-  padding: 6px;
-}
 </style>

@@ -23,6 +23,8 @@ pub struct SshConfigEntry {
     pub proxy_command: Option<String>,
     /// Whether this entry comes from a wildcard Host pattern.
     pub is_wildcard: bool,
+    /// Whether this entry is a non-interactive host (e.g. github.com, gitlab.com).
+    pub is_non_interactive: bool,
     /// All other options as raw key-value pairs.
     pub raw_options: HashMap<String, String>,
 }
@@ -67,6 +69,7 @@ pub fn parse_ssh_config(path: &Path) -> Result<ParseResult, String> {
             if b.hostname.is_empty() {
                 b.hostname = b.host_alias.clone();
             }
+            b.is_non_interactive = is_non_interactive_host(&b);
             b
         })
         .collect();
@@ -114,6 +117,7 @@ impl ParserState {
             proxy_jump: None,
             proxy_command: None,
             is_wildcard: host_alias.contains('*') || host_alias.contains('?'),
+            is_non_interactive: false,
             raw_options: HashMap::new(),
         });
     }
@@ -369,4 +373,47 @@ fn resolve_tilde(path: &str) -> String {
 /// Gets the current system username as a default SSH user.
 fn get_default_user() -> String {
     whoami::username()
+}
+
+/// Known non-SSH-login hosts (code hosting, CI, etc.).
+/// These entries are valid SSH config but not useful as interactive terminals.
+const NON_SSH_HOSTS: &[&str] = &[
+    "github.com",
+    "gitlab.com",
+    "bitbucket.org",
+    "ssh.dev.azure.com",
+    "vs-ssh.visualstudio.com",
+    "codeberg.org",
+    "gitee.com",
+    "jihulab.com",
+    "source.developers.google.com",
+    "heroku.com",
+    "ssh.github.com",
+];
+
+/// Returns true if this entry is a non-interactive SSH host (e.g. GitHub).
+pub fn is_non_interactive_host(entry: &SshConfigEntry) -> bool {
+    let hostname = entry.hostname.to_lowercase();
+    let alias = entry.host_alias.to_lowercase();
+
+    // Check exact match or subdomain match against known hosts
+    for &host in NON_SSH_HOSTS {
+        if hostname == host || alias == host {
+            return true;
+        }
+        // Match subdomains like "github.com-personal"
+        if hostname.starts_with(&format!("{}.", host)) || hostname.starts_with(&format!("{}-", host)) {
+            return true;
+        }
+        if alias.starts_with(&format!("{}.", host)) || alias.starts_with(&format!("{}-", host)) {
+            return true;
+        }
+    }
+
+    // User "git" with no explicit hostname usually means a code hosting service
+    if entry.user == "git" && entry.hostname == entry.host_alias {
+        return true;
+    }
+
+    false
 }

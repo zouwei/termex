@@ -8,6 +8,7 @@ export interface SshConfigEntry {
   proxyJump?: string;
   proxyCommand?: string;
   isWildcard: boolean;
+  isNonInteractive: boolean;
   rawOptions: Record<string, string>;
 }
 

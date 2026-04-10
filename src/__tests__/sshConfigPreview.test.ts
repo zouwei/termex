@@ -14,6 +14,7 @@ describe("SSH Config Types", () => {
         port: 22,
         user: "admin",
         isWildcard: false,
+        isNonInteractive: false,
         rawOptions: {},
       };
       expect(entry.hostAlias).toBe("myserver");
@@ -30,6 +31,7 @@ describe("SSH Config Types", () => {
         user: "deploy",
         identityFile: "/home/user/.ssh/id_ed25519",
         isWildcard: false,
+        isNonInteractive: false,
         rawOptions: {},
       };
       expect(entry.identityFile).toBeDefined();
@@ -44,6 +46,7 @@ describe("SSH Config Types", () => {
         user: "root",
         proxyJump: "bastion1,bastion2",
         isWildcard: false,
+        isNonInteractive: false,
         rawOptions: {},
       };
       expect(entry.proxyJump).toBe("bastion1,bastion2");
@@ -60,6 +63,7 @@ describe("SSH Config Types", () => {
             port: 22,
             user: "admin",
             isWildcard: false,
+            isNonInteractive: false,
             rawOptions: {},
           },
           {
@@ -68,6 +72,7 @@ describe("SSH Config Types", () => {
             port: 2222,
             user: "root",
             isWildcard: false,
+            isNonInteractive: false,
             rawOptions: {},
           },
         ],
@@ -101,6 +106,7 @@ describe("SSH Config Types", () => {
           port: 22,
           user: "default",
           isWildcard: true,
+          isNonInteractive: false,
           rawOptions: {},
         },
         {
@@ -109,6 +115,7 @@ describe("SSH Config Types", () => {
           port: 22,
           user: "default",
           isWildcard: false,
+          isNonInteractive: false,
           rawOptions: {},
         },
       ];
@@ -152,9 +159,9 @@ describe("SSH Config Types", () => {
   describe("Selection helpers", () => {
     it("select all returns all aliases", () => {
       const entries: SshConfigEntry[] = [
-        { hostAlias: "a", hostname: "1", port: 22, user: "u", isWildcard: false, rawOptions: {} },
-        { hostAlias: "b", hostname: "2", port: 22, user: "u", isWildcard: false, rawOptions: {} },
-        { hostAlias: "c", hostname: "3", port: 22, user: "u", isWildcard: false, rawOptions: {} },
+        { hostAlias: "a", hostname: "1", port: 22, user: "u", isWildcard: false, isNonInteractive: false, rawOptions: {} },
+        { hostAlias: "b", hostname: "2", port: 22, user: "u", isWildcard: false, isNonInteractive: false, rawOptions: {} },
+        { hostAlias: "c", hostname: "3", port: 22, user: "u", isWildcard: false, isNonInteractive: false, rawOptions: {} },
       ];
       const selected = entries.map((e) => e.hostAlias);
       expect(selected).toEqual(["a", "b", "c"]);

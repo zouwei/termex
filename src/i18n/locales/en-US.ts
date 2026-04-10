@@ -518,6 +518,7 @@ export default {
     resultSummary: "{imported} imported, {skipped} skipped, {errors} error(s)",
     errorDetails: "Error Details",
     done: "Done",
+    nonInteractive: "Non-SSH",
   },
   snippet: {
     title: "Snippets",

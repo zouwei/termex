@@ -53,9 +53,8 @@ async function loadPreview() {
       "ssh_config_preview",
       { path: null },
     );
-    entries.value = result.entries.filter((e) => !e.isWildcard);
+    entries.value = result.entries.filter((e) => !e.isWildcard && !e.isNonInteractive);
     parseErrors.value = result.errors;
-    // Select all non-wildcard entries by default
     selected.value = entries.value.map((e) => e.hostAlias);
     selectAll.value = true;
   } catch (err) {

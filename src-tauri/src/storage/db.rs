@@ -46,16 +46,21 @@ impl Database {
         }
 
         // Enable WAL mode for better concurrent read performance
+        eprintln!(">>> [DB] Setting pragmas...");
+        let pragma_start = std::time::Instant::now();
         conn.pragma_update(None, "journal_mode", "WAL")?;
-        // Enable foreign key enforcement
         conn.pragma_update(None, "foreign_keys", "ON")?;
+        eprintln!(">>> [DB] Pragmas set in {}ms", pragma_start.elapsed().as_millis());
 
         let db = Self {
             conn: Mutex::new(conn),
         };
 
         // Run migrations to ensure schema is up to date
+        eprintln!(">>> [DB] Running migrations...");
+        let mig_start = std::time::Instant::now();
         db.migrate()?;
+        eprintln!(">>> [DB] Migrations done in {}ms", mig_start.elapsed().as_millis());
 
         Ok(db)
     }

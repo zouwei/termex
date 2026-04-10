@@ -2,7 +2,7 @@
 
 use std::io::Write;
 use tempfile::NamedTempFile;
-use termex_lib::ssh::config_parser::{parse_ssh_config, pattern_matches};
+use termex_lib::ssh::config_parser::{parse_ssh_config, pattern_matches, is_non_interactive_host};
 
 fn write_config(content: &str) -> NamedTempFile {
     let mut f = NamedTempFile::new().unwrap();
@@ -168,4 +168,46 @@ fn test_match_directive_warning() {
     let aliases: Vec<&str> = result.entries.iter().map(|e| e.host_alias.as_str()).collect();
     assert!(aliases.contains(&"normal"));
     assert!(aliases.contains(&"after"));
+}
+
+// ── Non-Interactive Host Detection ──
+
+#[test]
+fn test_github_detected_as_non_interactive() {
+    let f = write_config(
+        "Host github.com\n  HostName github.com\n  User git\n  IdentityFile ~/.ssh/id_ed25519\n",
+    );
+    let result = parse_ssh_config(f.path()).unwrap();
+    assert_eq!(result.entries.len(), 1);
+    assert!(result.entries[0].is_non_interactive, "github.com should be non-interactive");
+}
+
+#[test]
+fn test_gitlab_detected_as_non_interactive() {
+    let f = write_config(
+        "Host gitlab.com\n  HostName gitlab.com\n  User git\n  IdentityFile ~/.ssh/id_rsa\n",
+    );
+    let result = parse_ssh_config(f.path()).unwrap();
+    assert_eq!(result.entries.len(), 1);
+    assert!(result.entries[0].is_non_interactive);
+}
+
+#[test]
+fn test_normal_server_not_non_interactive() {
+    let f = write_config(
+        "Host myserver\n  HostName 10.0.1.1\n  User admin\n",
+    );
+    let result = parse_ssh_config(f.path()).unwrap();
+    assert_eq!(result.entries.len(), 1);
+    assert!(!result.entries[0].is_non_interactive, "normal server should NOT be non-interactive");
+}
+
+#[test]
+fn test_github_alias_detected_as_non_interactive() {
+    let f = write_config(
+        "Host github-personal\n  HostName github.com\n  User git\n  IdentityFile ~/.ssh/personal\n",
+    );
+    let result = parse_ssh_config(f.path()).unwrap();
+    assert_eq!(result.entries.len(), 1);
+    assert!(result.entries[0].is_non_interactive, "alias pointing to github.com should be non-interactive");
 }
