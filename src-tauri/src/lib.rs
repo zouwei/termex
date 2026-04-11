@@ -189,6 +189,31 @@ pub fn run() {
             // Clean up old audit logs (90 day retention)
             crate::audit::cleanup(&state.db, 90);
 
+            // Clean up expired recordings (default 90 day retention)
+            {
+                let retention_days: i64 = state.db.with_conn(|conn| {
+                    conn.query_row(
+                        "SELECT value FROM settings WHERE key = 'recordingRetentionDays'",
+                        [],
+                        |row| row.get::<_, String>(0),
+                    )
+                }).ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(90);
+
+                if retention_days > 0 {
+                    let paths = state.db.with_conn(|conn| {
+                        crate::storage::recording::cleanup_expired(conn, retention_days)
+                    }).unwrap_or_default();
+                    for path in &paths {
+                        let _ = std::fs::remove_file(path);
+                    }
+                    if !paths.is_empty() {
+                        log::info!("Cleaned up {} expired recordings", paths.len());
+                    }
+                }
+            }
+
             // On Windows/Linux: remove native decorations — the custom HTML titlebar
             // in TerminalTabs.vue provides window controls (min/max/close) and drag.
             // On macOS: keep decorations + Overlay mode (traffic lights handled natively).
@@ -266,6 +291,16 @@ pub fn run() {
                                 active.stop();
                             }
                             drop(fwd);
+
+                            // Stop all active recordings before disconnecting
+                            {
+                                let session_ids: Vec<String> = state.sessions.read().await.keys().cloned().collect();
+                                for sid in &session_ids {
+                                    if state.recorder.is_recording(sid).await {
+                                        let _ = state.recorder.stop(sid).await;
+                                    }
+                                }
+                            }
 
                             // Disconnect all SSH sessions
                             let mut sessions = state.sessions.write().await;
@@ -373,6 +408,11 @@ pub fn run() {
             commands::recording::recording_list,
             commands::recording::recording_read,
             commands::recording::recording_delete,
+            commands::recording::recording_cleanup,
+            commands::recording::recording_export_text,
+            commands::recording::recording_summarize,
+            commands::recording::recording_get_dir,
+            commands::recording::recording_open_dir,
             // Plugins
             commands::plugin::plugin_list,
             commands::plugin::plugin_install,

@@ -148,12 +148,15 @@ export const useSettingsStore = defineStore("settings", () => {
 
   // Monitor settings
   const monitorInterval = ref(3000);
-  const monitorAutoStart = ref(false);
+  const monitorAutoStart = ref(true);
   const monitorShowCpu = ref(true);
   const monitorShowMemory = ref(true);
   const monitorShowDisk = ref(true);
   const monitorShowNetwork = ref(true);
   const monitorShowProcesses = ref(true);
+
+  // Recording settings
+  const recordingRetentionDays = ref(90);
 
   // ── Actions ────────────────────────────────────────────────
 
@@ -249,7 +252,18 @@ export const useSettingsStore = defineStore("settings", () => {
         case "monitorShowProcesses":
           monitorShowProcesses.value = value !== "false";
           break;
+        case "recordingRetentionDays":
+          recordingRetentionDays.value = Number(value) || 90;
+          break;
       }
+    }
+
+    // One-time migration: monitorAutoStart default changed to true
+    const loadedKeys = new Set(entries.map((r) => r.key));
+    if (!loadedKeys.has("__migrated_monitorAutoStart")) {
+      monitorAutoStart.value = true;
+      set("monitorAutoStart", "true");
+      set("__migrated_monitorAutoStart", "1");
     }
 
     applyTheme();
@@ -449,6 +463,7 @@ export const useSettingsStore = defineStore("settings", () => {
   watch(monitorShowDisk, (v) => set("monitorShowDisk", String(v)));
   watch(monitorShowNetwork, (v) => set("monitorShowNetwork", String(v)));
   watch(monitorShowProcesses, (v) => set("monitorShowProcesses", String(v)));
+  watch(recordingRetentionDays, (v) => set("recordingRetentionDays", String(v)));
 
   return {
     theme,
@@ -477,6 +492,7 @@ export const useSettingsStore = defineStore("settings", () => {
     monitorShowDisk,
     monitorShowNetwork,
     monitorShowProcesses,
+    recordingRetentionDays,
     loadAll,
     set,
     applyTheme,

@@ -10,6 +10,7 @@ import TerminalView from "./TerminalView.vue";
 import SftpPanel from "@/components/sftp/SftpPanel.vue";
 import TransfersPanel from "@/components/sftp/TransfersPanel.vue";
 import MonitorPanel from "@/components/monitor/MonitorPanel.vue";
+import RecordingControls from "@/components/recording/RecordingControls.vue";
 import { useMonitorStore } from "@/stores/monitorStore";
 
 const props = defineProps<{
@@ -312,7 +313,8 @@ defineExpose({
       ref="terminalViewRef"
       :session-id="sessionId"
       class="min-w-0 min-h-0 shrink-0"
-      :style="{ ...terminalStyle, paddingTop: showFloatingTabBar ? '24px' : '0' }"
+      :style="terminalStyle"
+      :top-padding="showFloatingTabBar ? 24 : 0"
     />
 
     <!-- ═══ Overlaid content panels (tabs mode, or non-split panels in split mode) ═══ -->
@@ -339,6 +341,10 @@ defineExpose({
             </span>
           </button>
           <div class="flex-1" />
+          <RecordingControls
+            v-if="isConnected"
+            :session-id="sessionId"
+          />
           <button
             v-if="isConnected"
             class="cwd-sync-btn"
@@ -396,6 +402,10 @@ defineExpose({
         </span>
       </button>
       <div class="flex-1" />
+      <RecordingControls
+        v-if="isConnected"
+        :session-id="sessionId"
+      />
       <button
         v-if="isConnected"
         class="cwd-sync-btn"
@@ -461,6 +471,10 @@ defineExpose({
             </button>
           </template>
           <div class="flex-1" />
+          <RecordingControls
+            v-if="isConnected"
+            :session-id="sessionId"
+          />
           <button
             v-if="isConnected"
             class="cwd-sync-btn"

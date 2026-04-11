@@ -248,6 +248,7 @@ pub async fn ssh_open_shell(
     session_id: String,
     cols: u32,
     rows: u32,
+    server_id: Option<String>,
 ) -> Result<(), String> {
     let mut sessions = state.sessions.write().await;
     let session = sessions
@@ -276,6 +277,46 @@ pub async fn ssh_open_shell(
         &status_event,
         serde_json::json!({"status": "connected", "message": "shell opened"}),
     );
+
+    // Auto-record: check server.auto_record flag
+    if let Some(ref sid) = server_id {
+        let auto_record_info: Option<(bool, u32)> = state.db.with_conn(|conn| {
+            conn.query_row(
+                "SELECT COALESCE(auto_record, 0), COALESCE(max_recording_mb, 50) FROM servers WHERE id = ?1",
+                rusqlite::params![sid],
+                |row| Ok((row.get::<_, i32>(0)? != 0, row.get::<_, u32>(1)?)),
+            )
+        }).ok();
+
+        if let Some((true, max_mb)) = auto_record_info {
+            let server_name: String = state.db.with_conn(|conn| {
+                conn.query_row(
+                    "SELECT name FROM servers WHERE id = ?1",
+                    rusqlite::params![sid],
+                    |row| row.get(0),
+                )
+            }).unwrap_or_else(|_| sid.clone());
+
+            if let Ok((rec_id, path)) = state.recorder.start(
+                &session_id, sid, &server_name, cols, rows,
+                Some(format!("Auto: {}", server_name)), true, max_mb,
+            ).await {
+                let now = super::recording::now_rfc3339();
+                let meta = crate::storage::recording::RecordingMeta {
+                    id: rec_id.clone(),
+                    session_id: session_id.clone(),
+                    server_id: sid.clone(),
+                    server_name,
+                    file_path: path.to_string_lossy().to_string(),
+                    file_size: 0, duration_ms: 0, cols, rows,
+                    event_count: 0, summary: None, auto_recorded: true,
+                    started_at: now.clone(), ended_at: None, created_at: now,
+                };
+                let _ = state.db.with_conn(|conn| crate::storage::recording::insert(conn, &meta));
+                let _ = app.emit(&format!("recording://started/{session_id}"), &rec_id);
+            }
+        }
+    }
 
     Ok(())
 }
@@ -446,6 +487,9 @@ pub async fn ssh_disconnect(
     // Stop monitor collection if active
     super::monitor::monitor_stop_inner(&state, &session_id).await;
 
+    // Stop recording if active (flush events to disk)
+    let _ = super::recording::finalize_recording_for_session(&state, &session_id).await;
+
     // Also close SFTP session if open
     {
         let mut sftp_sessions = state.sftp_sessions.write().await;
@@ -497,8 +541,14 @@ pub async fn ssh_write(
     let sessions = state.sessions.read().await;
     let session = sessions
         .get(&session_id)
-        .ok_or_else(|| SshError::SessionNotFound(session_id).to_string())?;
-    session.write(&data).map_err(|e| e.to_string())
+        .ok_or_else(|| SshError::SessionNotFound(session_id.clone()).to_string())?;
+    session.write(&data).map_err(|e| e.to_string())?;
+
+    // Hook: record input if session is being recorded
+    let text = String::from_utf8_lossy(&data);
+    state.recorder.record_input(&session_id, &text).await;
+
+    Ok(())
 }
 
 /// Resizes the terminal window for an SSH session. Non-blocking.

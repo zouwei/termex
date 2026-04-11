@@ -15,6 +15,7 @@ const MIGRATIONS: &[(i32, &str, &str)] = &[
     (10, "connection chain support", MIGRATION_V10),
     (11, "audit log", MIGRATION_V11),
     (12, "snippet manager", MIGRATION_V12),
+    (13, "session recording metadata", MIGRATION_V13),
 ];
 
 /// Runs all pending migrations in order.
@@ -92,6 +93,11 @@ pub fn run_migrations(conn: &Connection) -> Result<(), rusqlite::Error> {
                 // Migration v10: connection chain support
                 // Migrate existing proxy_id / network_proxy_id to connection_chain rows
                 migrate_legacy_chains(conn);
+            }
+            if version == 13 {
+                // Migration v13: session recording metadata
+                add_column_if_missing(conn, "servers", "auto_record", "INTEGER DEFAULT 0");
+                add_column_if_missing(conn, "servers", "max_recording_mb", "INTEGER DEFAULT 50");
             }
             conn.execute(
                 "INSERT INTO _migrations (version, description, applied_at) VALUES (?1, ?2, ?3)",
@@ -373,3 +379,25 @@ fn add_column_if_missing(conn: &Connection, table: &str, column: &str, col_type:
         let _ = conn.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {column} {col_type};"));
     }
 }
+
+const MIGRATION_V13: &str = "
+CREATE TABLE IF NOT EXISTS recordings (
+    id              TEXT PRIMARY KEY,
+    session_id      TEXT NOT NULL,
+    server_id       TEXT NOT NULL,
+    server_name     TEXT NOT NULL,
+    file_path       TEXT NOT NULL,
+    file_size       INTEGER DEFAULT 0,
+    duration_ms     INTEGER DEFAULT 0,
+    cols            INTEGER NOT NULL,
+    rows            INTEGER NOT NULL,
+    event_count     INTEGER DEFAULT 0,
+    summary         TEXT,
+    auto_recorded   INTEGER DEFAULT 0,
+    started_at      TEXT NOT NULL,
+    ended_at        TEXT,
+    created_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_recordings_server ON recordings(server_id, started_at);
+CREATE INDEX IF NOT EXISTS idx_recordings_date ON recordings(started_at);
+";

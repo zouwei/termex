@@ -3,16 +3,15 @@ import { ref, onMounted, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { Search, Plus, FolderOpened } from "@element-plus/icons-vue";
 import { useSnippetStore } from "@/stores/snippetStore";
+import { useSessionStore } from "@/stores/sessionStore";
+import { tauriInvoke } from "@/utils/tauri";
 import SnippetItem from "./SnippetItem.vue";
 import SnippetForm from "./SnippetForm.vue";
 import type { Snippet } from "@/types/snippet";
 
 const { t } = useI18n();
 const snippetStore = useSnippetStore();
-
-const emit = defineEmits<{
-  (e: "execute", snippet: Snippet): void;
-}>();
+const sessionStore = useSessionStore();
 
 // ── Local state ─────────────────────────────────────────────
 const searchInput = ref("");
@@ -66,8 +65,13 @@ async function onToggleFavorite(snippet: Snippet) {
   });
 }
 
-function onExecute(snippet: Snippet) {
-  emit("execute", snippet);
+async function onExecute(snippet: Snippet) {
+  const sid = sessionStore.activeSessionId;
+  if (!sid || sid.startsWith("connecting-")) return;
+  const text = snippet.command.trim();
+  const bytes = new TextEncoder().encode(text);
+  const writeCmd = sid.startsWith("local-") ? "local_pty_write" : "ssh_write";
+  await tauriInvoke(writeCmd, { sessionId: sid, data: Array.from(bytes) }).catch(() => {});
 }
 
 // ── Init ────────────────────────────────────────────────────
@@ -112,22 +116,12 @@ onMounted(() => {
 
     <!-- Folder tabs -->
     <div
-      class="flex items-center gap-1 px-2 py-1.5 overflow-x-auto shrink-0"
+      class="flex items-stretch overflow-x-auto shrink-0"
       style="border-bottom: 1px solid var(--tm-border)"
     >
       <button
-        class="px-2 py-0.5 rounded text-[11px] whitespace-nowrap transition-colors"
-        :style="{
-          background: snippetStore.currentFolderId === null
-            ? 'var(--el-color-primary-light-8, rgba(64,158,255,0.15))'
-            : 'transparent',
-          color: snippetStore.currentFolderId === null
-            ? 'var(--el-color-primary, #409eff)'
-            : 'var(--tm-text-secondary)',
-          border: '1px solid ' + (snippetStore.currentFolderId === null
-            ? 'var(--el-color-primary-light-5, rgba(64,158,255,0.35))'
-            : 'var(--tm-border)'),
-        }"
+        class="snippet-folder-tab"
+        :class="{ 'snippet-folder-tab-active': snippetStore.currentFolderId === null }"
         @click="selectFolder(null)"
       >
         {{ t('snippet.allFolder') }}
@@ -135,18 +129,8 @@ onMounted(() => {
       <button
         v-for="folder in snippetStore.folders"
         :key="folder.id"
-        class="px-2 py-0.5 rounded text-[11px] whitespace-nowrap transition-colors flex items-center gap-1"
-        :style="{
-          background: snippetStore.currentFolderId === folder.id
-            ? 'var(--el-color-primary-light-8, rgba(64,158,255,0.15))'
-            : 'transparent',
-          color: snippetStore.currentFolderId === folder.id
-            ? 'var(--el-color-primary, #409eff)'
-            : 'var(--tm-text-secondary)',
-          border: '1px solid ' + (snippetStore.currentFolderId === folder.id
-            ? 'var(--el-color-primary-light-5, rgba(64,158,255,0.35))'
-            : 'var(--tm-border)'),
-        }"
+        class="snippet-folder-tab flex items-center gap-1"
+        :class="{ 'snippet-folder-tab-active': snippetStore.currentFolderId === folder.id }"
         @click="selectFolder(folder.id)"
       >
         <el-icon :size="10"><FolderOpened /></el-icon>
@@ -195,3 +179,25 @@ onMounted(() => {
     />
   </div>
 </template>
+
+<style scoped>
+.snippet-folder-tab {
+  padding: 4px 10px;
+  font-size: 11px;
+  white-space: nowrap;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  background: transparent;
+  color: var(--tm-text-muted);
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.snippet-folder-tab:hover {
+  color: var(--tm-text-primary);
+}
+.snippet-folder-tab-active {
+  color: var(--el-color-primary, #409eff);
+  border-bottom-color: var(--el-color-primary, #409eff);
+}
+</style>

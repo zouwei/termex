@@ -1,5 +1,5 @@
 use russh::ChannelMsg;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::mpsc;
 
 /// Message types for the background channel task.
@@ -38,6 +38,24 @@ pub fn spawn_channel_task(
                         Some(ChannelMsg::Data { data }) => {
                             let event = format!("ssh://data/{sid}");
                             let _ = app.emit(&event, data.to_vec());
+
+                            // Hook: record output if session is being recorded
+                            if let Some(state) = app.try_state::<crate::state::AppState>() {
+                                let text = String::from_utf8_lossy(&data);
+                                let within_limit = state.recorder.record_output(&sid, &text).await;
+                                if !within_limit {
+                                    // Size limit exceeded — auto-stop recording
+                                    if let Ok((_, path)) = state.recorder.stop(&sid).await {
+                                        let _ = crate::commands::recording::finalize_recording_for_session(
+                                            state.inner(), &sid,
+                                        ).await;
+                                        let _ = app.emit(
+                                            &format!("recording://auto-stopped/{sid}"),
+                                            serde_json::json!({ "reason": "size_limit" }),
+                                        );
+                                    }
+                                }
+                            }
                         }
                         Some(ChannelMsg::ExitStatus { exit_status }) => {
                             let event = format!("ssh://status/{sid}");

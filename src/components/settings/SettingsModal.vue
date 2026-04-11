@@ -7,9 +7,9 @@ import TerminalTab from "./TerminalTab.vue";
 import KeybindingsTab from "./KeybindingsTab.vue";
 import SecurityTab from "./SecurityTab.vue";
 import AiConfigTab from "./AiConfigTab.vue";
-import BackupTab from "./BackupTab.vue";
 import HighlightsTab from "./HighlightsTab.vue";
 import MonitorTab from "./MonitorTab.vue";
+import DataTab from "./DataTab.vue";
 
 const { t } = useI18n();
 const isMac = navigator.platform.toUpperCase().includes("MAC");
@@ -44,8 +44,8 @@ const tabs = computed(() => [
   { name: "highlights", label: t("settings.highlights") },
   { name: "security", label: t("settings.security") },
   { name: "ai", label: t("settings.aiConfig") },
-  { name: "monitor", label: "Monitor" },
-  { name: "backup", label: t("settings.backup") },
+  { name: "monitor", label: t("settings.monitor") },
+  { name: "data", label: t("settings.data") },
 ]);
 </script>
 
@@ -110,7 +110,7 @@ const tabs = computed(() => [
         <SecurityTab v-else-if="activeTab === 'security'" />
         <AiConfigTab v-else-if="activeTab === 'ai'" />
         <MonitorTab v-else-if="activeTab === 'monitor'" />
-        <BackupTab v-else-if="activeTab === 'backup'" />
+        <DataTab v-else-if="activeTab === 'data'" />
         <div v-else class="text-gray-500 text-xs py-4">
           {{ tabs.find(t => t.name === activeTab)?.label }} — Coming soon
         </div>

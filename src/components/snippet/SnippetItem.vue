@@ -22,21 +22,19 @@ const hovered = ref(false);
 
 <template>
   <div
-    class="group flex flex-col gap-1 px-2.5 py-2 mx-1 my-0.5 rounded transition-colors cursor-pointer"
-    style="border: 1px solid transparent"
+    class="group flex flex-col gap-0.5 px-2 py-1 mx-1 my-0.5 rounded transition-colors cursor-pointer"
     :style="{
       background: hovered ? 'var(--tm-bg-hover, rgba(255,255,255,0.04))' : 'transparent',
-      borderColor: hovered ? 'var(--tm-border)' : 'transparent',
     }"
     @mouseenter="hovered = true"
     @mouseleave="hovered = false"
     @click="emit('execute', props.snippet)"
   >
     <!-- Top row: title + actions -->
-    <div class="flex items-center gap-1.5 min-w-0">
+    <div class="relative flex items-center gap-1.5 min-w-0">
       <!-- Favorite star -->
       <button
-        class="shrink-0 p-0.5 rounded transition-colors"
+        class="shrink-0 rounded transition-colors flex items-center justify-center w-4 h-4"
         :title="props.snippet.isFavorite ? t('snippet.unfavorite') : t('snippet.favorite')"
         :style="{
           color: props.snippet.isFavorite
@@ -59,27 +57,28 @@ const hovered = ref(false);
         {{ props.snippet.title }}
       </span>
 
-      <!-- Hover actions -->
+      <!-- Hover actions (absolute, no layout impact) -->
       <div
         v-show="hovered"
-        class="flex items-center gap-0.5 shrink-0"
+        class="absolute right-0 top-0 bottom-0 flex items-center gap-0.5"
+        style="background: var(--tm-bg-hover, rgba(255,255,255,0.04))"
       >
         <button
-          class="tm-icon-btn p-1 rounded transition-colors"
+          class="tm-icon-btn rounded transition-colors flex items-center justify-center w-5 h-5"
           :title="t('snippet.execute')"
           @click.stop="emit('execute', props.snippet)"
         >
           <el-icon :size="12"><CaretRight /></el-icon>
         </button>
         <button
-          class="tm-icon-btn p-1 rounded transition-colors"
+          class="tm-icon-btn rounded transition-colors flex items-center justify-center w-5 h-5"
           :title="t('snippet.edit')"
           @click.stop="emit('edit', props.snippet)"
         >
           <el-icon :size="12"><Edit /></el-icon>
         </button>
         <button
-          class="tm-icon-btn p-1 rounded transition-colors"
+          class="tm-icon-btn rounded transition-colors flex items-center justify-center w-5 h-5"
           :title="t('snippet.delete')"
           style="color: var(--el-color-danger, #f56c6c)"
           @click.stop="emit('delete', props.snippet)"

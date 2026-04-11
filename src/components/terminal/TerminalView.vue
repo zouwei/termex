@@ -20,6 +20,7 @@ import SelectionToolbar from "./SelectionToolbar.vue";
 
 const props = defineProps<{
   sessionId: string;
+  topPadding?: number;
 }>();
 
 const { t } = useI18n();
@@ -300,12 +301,13 @@ defineExpose({
 </script>
 
 <template>
-  <div class="w-full h-full relative overflow-hidden" style="background: var(--tm-terminal-bg)">
-    <!-- Terminal container (padding here so fitAddon calculates rows correctly) -->
+  <div class="w-full h-full relative overflow-hidden flex flex-col" style="background: var(--tm-terminal-bg)">
+    <!-- Top spacer for floating tab bar (not padding — so FitAddon sees correct height) -->
+    <div v-if="topPadding" class="shrink-0" :style="{ height: `${topPadding}px` }" />
+    <!-- Terminal container (no padding here — padding is on .xterm so FitAddon accounts for it) -->
     <div
       ref="containerRef"
-      class="w-full h-full box-border"
-      style="padding: 6px"
+      class="terminal-container w-full flex-1 min-h-0"
       @contextmenu="onTerminalContextMenu"
     />
 
@@ -401,4 +403,7 @@ defineExpose({
 </template>
 
 <style scoped>
+.terminal-container :deep(.xterm) {
+  padding: 6px;
+}
 </style>

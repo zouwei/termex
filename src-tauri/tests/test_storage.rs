@@ -17,7 +17,7 @@ fn test_migrations_idempotent() {
     let version: i32 = conn
         .query_row("SELECT MAX(version) FROM _migrations", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 12);
+    assert_eq!(version, 13);
 }
 
 #[test]
@@ -27,7 +27,7 @@ fn test_all_migrations_applied() {
     let count: i32 = conn
         .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(count, 12);
+    assert_eq!(count, 13);
 }
 
 #[test]

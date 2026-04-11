@@ -17,7 +17,9 @@ import UpdateDialog from "@/components/settings/UpdateDialog.vue";
 import PrivacyDialog from "@/components/settings/PrivacyDialog.vue";
 import CrossTabSearchDialog from "@/components/terminal/CrossTabSearchDialog.vue";
 import HostKeyDialog from "@/components/terminal/HostKeyDialog.vue";
+import RecordingPlayer from "@/components/recording/RecordingPlayer.vue";
 import { useSettingsStore } from "@/stores/settingsStore";
+import type { Recording } from "@/types/recording";
 import { checkForUpdate, shouldCheckToday } from "@/utils/update";
 import localModelsCatalog from "@/assets/local-models.json";
 
@@ -81,6 +83,28 @@ const connectModalVisible = ref(false);
 const settingsModalVisible = ref(false);
 const editServerId = ref<string | null>(null);
 const aiPanelVisible = ref(false);
+
+// Recording player modal
+const playingRecording = ref<Recording | null>(null);
+const playingCastContent = ref("");
+
+async function openRecordingPlayer(recording: Recording) {
+  try {
+    playingCastContent.value = await tauriInvoke<string>("recording_read", { path: recording.filePath });
+    playingRecording.value = recording;
+  } catch (e) {
+    console.error("Failed to load recording:", e);
+  }
+}
+
+// Listen for play-recording events from child components
+window.addEventListener("termex:play-recording", ((e: CustomEvent) => {
+  openRecordingPlayer(e.detail as Recording);
+}) as EventListener);
+function closeRecordingPlayer() {
+  playingRecording.value = null;
+  playingCastContent.value = "";
+}
 const updateDialogVisible = ref(false);
 const privacyDialogVisible = ref(false);
 const keychainVerificationVisible = ref(false);
@@ -386,6 +410,15 @@ onBeforeUnmount(() => {
       @jump-to-match="handleJumpToMatch"
     />
     <HostKeyDialog ref="hostKeyDialogRef" />
+
+    <!-- Recording Player overlay -->
+    <div v-if="playingRecording" class="fixed inset-0" style="z-index: 100; background: var(--tm-bg-base)">
+      <RecordingPlayer
+        :recording="playingRecording"
+        :cast-content="playingCastContent"
+        @close="closeRecordingPlayer"
+      />
+    </div>
 
     <!-- Model Catalog Update Dialog -->
     <el-dialog

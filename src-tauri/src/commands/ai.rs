@@ -516,7 +516,7 @@ fn resolve_api_key(
 }
 
 /// Calls an AI provider's completion API.
-async fn call_ai_provider(
+pub(crate) async fn call_ai_provider(
     state: &AppState,
     provider_type: &str,
     api_key: &str,
