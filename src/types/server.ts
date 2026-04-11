@@ -54,6 +54,14 @@ export interface Server {
   lastConnected?: string;
   createdAt: string;
   updatedAt: string;
+  /** Whether this server is shared with the team. */
+  shared?: boolean;
+  /** Team identifier. */
+  teamId?: string;
+  /** Username of the member who shared this server. */
+  sharedBy?: string;
+  /** When this server was shared. */
+  sharedAt?: string;
 }
 
 /** Input for creating or updating a server. */
@@ -80,6 +88,8 @@ export interface ServerInput {
   gitSyncRemotePath?: string;
   /** Connection chain hops (V10+). */
   chain?: ChainHopInput[];
+  /** Whether this server is shared with the team. */
+  shared?: boolean;
 }
 
 /** Input for creating or updating a group. */

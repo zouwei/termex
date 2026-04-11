@@ -9,6 +9,7 @@ pub mod monitor;
 pub mod paths;
 pub mod plugin;
 pub mod recording;
+pub mod team;
 pub mod sftp;
 pub mod ssh;
 pub mod storage;
@@ -413,6 +414,18 @@ pub fn run() {
             commands::recording::recording_summarize,
             commands::recording::recording_get_dir,
             commands::recording::recording_open_dir,
+            // Team
+            commands::team::team_create,
+            commands::team::team_join,
+            commands::team::team_sync,
+            commands::team::team_leave,
+            commands::team::team_get_status,
+            commands::team::team_list_members,
+            commands::team::team_set_role,
+            commands::team::team_remove_member,
+            commands::team::team_verify_passphrase,
+            commands::team::team_toggle_share,
+            commands::team::team_rotate_key,
             // Plugins
             commands::plugin::plugin_list,
             commands::plugin::plugin_install,

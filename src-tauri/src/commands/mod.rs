@@ -25,3 +25,4 @@ pub mod privacy;
 pub mod snippet;
 pub mod ssh_config;
 pub mod monitor;
+pub mod team;

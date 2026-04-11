@@ -16,6 +16,7 @@ const MIGRATIONS: &[(i32, &str, &str)] = &[
     (11, "audit log", MIGRATION_V11),
     (12, "snippet manager", MIGRATION_V12),
     (13, "session recording metadata", MIGRATION_V13),
+    (14, "team collaboration", ""),
 ];
 
 /// Runs all pending migrations in order.
@@ -98,6 +99,13 @@ pub fn run_migrations(conn: &Connection) -> Result<(), rusqlite::Error> {
                 // Migration v13: session recording metadata
                 add_column_if_missing(conn, "servers", "auto_record", "INTEGER DEFAULT 0");
                 add_column_if_missing(conn, "servers", "max_recording_mb", "INTEGER DEFAULT 50");
+            }
+            if version == 14 {
+                // Migration v14: team collaboration
+                add_column_if_missing(conn, "servers", "shared", "INTEGER DEFAULT 0");
+                add_column_if_missing(conn, "servers", "team_id", "TEXT");
+                add_column_if_missing(conn, "servers", "shared_by", "TEXT");
+                add_column_if_missing(conn, "servers", "shared_at", "TEXT");
             }
             conn.execute(
                 "INSERT INTO _migrations (version, description, applied_at) VALUES (?1, ?2, ?3)",

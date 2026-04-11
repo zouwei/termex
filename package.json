@@ -1,6 +1,6 @@
 {
   "name": "termex",
-  "version": "0.29.0",
+  "version": "0.30.0",
   "description": "Open-source AI-native SSH client — Always-on cloud AI workspace powered by SSH",
   "type": "module",
   "scripts": {

@@ -42,6 +42,48 @@ export function useTerminal(sessionId: Ref<string>, options?: TerminalOptions) {
   let unlistenStatus: (() => void) | null = null;
   let resizeObserver: ResizeObserver | null = null;
 
+  /**
+   * Safe fit: uses getBoundingClientRect for accurate container measurement and
+   * ensures the calculated rows never exceed what the visible area can display.
+   * Falls back to FitAddon if internal dimensions aren't available yet.
+   */
+  function safeFit() {
+    if (!terminal || !fitAddon) return;
+    const el = terminal.element;
+    if (!el || !el.parentElement) {
+      fitAddon.fit();
+      return;
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const core = (terminal as any)._core;
+    const dims = core?._renderService?.dimensions;
+    if (!dims || dims.css.cell.width === 0 || dims.css.cell.height === 0) {
+      fitAddon.fit();
+      return;
+    }
+
+    const parentRect = el.parentElement.getBoundingClientRect();
+    const style = window.getComputedStyle(el);
+    const padTop = parseFloat(style.paddingTop) || 0;
+    const padBot = parseFloat(style.paddingBottom) || 0;
+    const padLeft = parseFloat(style.paddingLeft) || 0;
+    const padRight = parseFloat(style.paddingRight) || 0;
+
+    const scrollbarWidth = terminal.options.scrollback === 0
+      ? 0 : (core.viewport?.scrollBarWidth ?? 0);
+
+    const availH = parentRect.height - padTop - padBot;
+    const availW = parentRect.width - padLeft - padRight - scrollbarWidth;
+
+    const cols = Math.max(2, Math.floor(availW / dims.css.cell.width));
+    const rows = Math.max(1, Math.floor(availH / dims.css.cell.height));
+
+    if (terminal.rows !== rows || terminal.cols !== cols) {
+      core._renderService.clear();
+      terminal.resize(cols, rows);
+    }
+  }
+
   /** Mounts xterm.js into a DOM element and binds to the SSH session. */
   async function mount(el: HTMLElement) {
     const settingsStore = useSettingsStore();
@@ -74,6 +116,9 @@ export function useTerminal(sessionId: Ref<string>, options?: TerminalOptions) {
       } catch {
         webglAddon = null;
       }
+      // Re-fit after renderer switch: WebGL cell dimensions may differ from DOM renderer,
+      // which could cause rows to be slightly wrong, hiding the cursor at the bottom.
+      safeFit();
     });
 
     // Copy/Paste keyboard support
@@ -155,7 +200,7 @@ export function useTerminal(sessionId: Ref<string>, options?: TerminalOptions) {
       return true;
     });
 
-    fitAddon.fit();
+    safeFit();
     terminal.focus();
     // Ensure focus after xterm fully renders
     requestAnimationFrame(() => terminal?.focus());
@@ -217,9 +262,9 @@ export function useTerminal(sessionId: Ref<string>, options?: TerminalOptions) {
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
     resizeObserver = new ResizeObserver((entries) => {
       const { width, height } = entries[0].contentRect;
-      if (width > 0 && height > 0 && fitAddon) {
+      if (width > 0 && height > 0 && terminal) {
         if (resizeTimer) clearTimeout(resizeTimer);
-        resizeTimer = setTimeout(() => fitAddon?.fit(), 16);
+        resizeTimer = setTimeout(() => safeFit(), 16);
       }
     });
     resizeObserver.observe(el);
@@ -307,7 +352,7 @@ export function useTerminal(sessionId: Ref<string>, options?: TerminalOptions) {
       webglAddon = null;
     }
 
-    fitAddon.fit();
+    safeFit();
     terminal.focus();
   }
 
@@ -336,7 +381,7 @@ export function useTerminal(sessionId: Ref<string>, options?: TerminalOptions) {
       }
     }
 
-    fitAddon?.fit();
+    safeFit();
   }
 
   /** Returns the underlying Terminal instance (for search / highlight). */

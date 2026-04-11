@@ -18,6 +18,7 @@ import PrivacyDialog from "@/components/settings/PrivacyDialog.vue";
 import CrossTabSearchDialog from "@/components/terminal/CrossTabSearchDialog.vue";
 import HostKeyDialog from "@/components/terminal/HostKeyDialog.vue";
 import RecordingPlayer from "@/components/recording/RecordingPlayer.vue";
+import { getTerminalEntry } from "@/utils/terminalRegistry";
 import { useSettingsStore } from "@/stores/settingsStore";
 import type { Recording } from "@/types/recording";
 import { checkForUpdate, shouldCheckToday } from "@/utils/update";
@@ -170,6 +171,8 @@ async function insertToTerminal(command: string) {
     sessionId: sid,
     data: Array.from(bytes),
   }).catch(() => {});
+  // Focus terminal so user can immediately press Enter to execute
+  getTerminalEntry(sid)?.terminal.focus();
 }
 
 async function handleKeychainVerify() {
@@ -303,6 +306,11 @@ onMounted(async () => {
   unlisteners.push(await tauriListen<string>("keychain://verification_required", (message) => {
     keychainVerificationMessage.value = message;
     keychainVerificationVisible.value = true;
+  }));
+
+  // Listen for team sync events — refresh server list
+  unlisteners.push(await tauriListen("team://synced", () => {
+    serverStore.fetchAll();
   }));
 
   // Check local AI model catalog updates

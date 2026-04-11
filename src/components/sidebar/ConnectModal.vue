@@ -7,12 +7,14 @@ import { useServerStore } from "@/stores/serverStore";
 import { useSessionStore } from "@/stores/sessionStore";
 import { useProxyStore } from "@/stores/proxyStore";
 import { usePortForwardStore } from "@/stores/portForwardStore";
+import { useTeamStore } from "@/stores/teamStore";
 import { tauriInvoke, tauriListen } from "@/utils/tauri";
 import type { ServerInput, ChainHopInput } from "@/types/server";
 import type { ForwardInput } from "@/types/portForward";
 
 const { t } = useI18n();
 const serverStore = useServerStore();
+const teamStore = useTeamStore();
 const sessionStore = useSessionStore();
 const proxyStore = useProxyStore();
 const portForwardStore = usePortForwardStore();
@@ -88,6 +90,7 @@ const form = reactive<ServerInput>({
   gitSyncMode: "notify",
   gitSyncLocalPath: "",
   gitSyncRemotePath: "",
+  shared: false,
 });
 
 const title = computed(() =>
@@ -314,6 +317,7 @@ function resetForm() {
   form.gitSyncMode = "notify";
   form.gitSyncLocalPath = "";
   form.gitSyncRemotePath = "";
+  form.shared = false;
   chain.value = [{ type: "target", id: "" }];
   testResult.value = null;
   activeTab.value = "authorization";
@@ -432,6 +436,7 @@ async function loadServer(id: string) {
   form.gitSyncMode = server.gitSyncMode ?? "notify";
   form.gitSyncLocalPath = server.gitSyncLocalPath ?? "";
   form.gitSyncRemotePath = server.gitSyncRemotePath ?? "";
+  form.shared = server.shared ?? false;
 
   // Rebuild chain from V10 chain data, or fall back to legacy fields
   const nodes: ChainNode[] = [];
@@ -763,6 +768,22 @@ async function handleTest() {
             <p class="text-[10px] mt-1" style="color: var(--tm-text-muted)">
               {{ t('connection.gitSyncHint') }}
             </p>
+          </template>
+
+          <!-- Team sharing -->
+          <template v-if="teamStore.isJoined">
+            <el-divider style="margin: 12px 0;" />
+            <el-form-item>
+              <div class="flex items-center gap-3">
+                <el-switch v-model="form.shared" />
+                <span class="text-xs" style="color: var(--tm-text-secondary)">
+                  {{ t('team.shareServer') }}
+                </span>
+              </div>
+              <p class="text-[10px] mt-1" style="color: var(--tm-text-muted)">
+                {{ t('team.shareServerHint') }}
+              </p>
+            </el-form-item>
           </template>
         </el-form>
       </el-tab-pane>

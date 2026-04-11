@@ -304,10 +304,10 @@ defineExpose({
   <div class="w-full h-full relative overflow-hidden flex flex-col" style="background: var(--tm-terminal-bg)">
     <!-- Top spacer for floating tab bar (not padding — so FitAddon sees correct height) -->
     <div v-if="topPadding" class="shrink-0" :style="{ height: `${topPadding}px` }" />
-    <!-- Terminal container (no padding here — padding is on .xterm so FitAddon accounts for it) -->
+    <!-- Terminal container (padding on .xterm so FitAddon accounts for it) -->
     <div
       ref="containerRef"
-      class="terminal-container w-full flex-1 min-h-0"
+      class="terminal-container w-full flex-1 min-h-0 overflow-hidden"
       @contextmenu="onTerminalContextMenu"
     />
 

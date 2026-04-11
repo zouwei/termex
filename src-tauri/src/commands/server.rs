@@ -103,7 +103,8 @@ pub fn server_list(state: State<'_, AppState>) -> Result<Vec<Server>, String> {
                         passphrase_enc, group_id, sort_order, proxy_id, startup_cmd,
                         encoding, tags, last_connected, created_at, updated_at, network_proxy_id,
                         tmux_mode, tmux_close_action,
-                        git_sync_enabled, git_sync_mode, git_sync_local_path, git_sync_remote_path
+                        git_sync_enabled, git_sync_mode, git_sync_local_path, git_sync_remote_path,
+                        shared, team_id, shared_by, shared_at
                  FROM servers ORDER BY sort_order, name",
             )?;
             let rows = stmt
@@ -141,6 +142,10 @@ pub fn server_list(state: State<'_, AppState>) -> Result<Vec<Server>, String> {
                         last_connected: row.get(15)?,
                         created_at: row.get(16)?,
                         updated_at: row.get(17)?,
+                        shared: row.get::<_, Option<i32>>(25)?.unwrap_or(0) != 0,
+                        team_id: row.get(26)?,
+                        shared_by: row.get(27)?,
+                        shared_at: row.get(28)?,
                     })
                 })?
                 .filter_map(|r| r.ok())
@@ -262,6 +267,10 @@ pub fn server_create(
         last_connected: None,
         created_at: now.clone(),
         updated_at: now,
+        shared: false,
+        team_id: None,
+        shared_by: None,
+        shared_at: None,
     })
 }
 
@@ -374,6 +383,10 @@ pub fn server_update(
         last_connected: None,
         created_at: String::new(),
         updated_at: now,
+        shared: false,
+        team_id: None,
+        shared_by: None,
+        shared_at: None,
     })
 }
 

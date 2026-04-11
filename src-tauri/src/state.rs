@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
 use tokio::sync::{RwLock as TokioRwLock, oneshot};
@@ -61,6 +62,10 @@ pub struct AppState {
     pub monitor_collectors: TokioRwLock<HashMap<String, CollectorState>>,
     /// Monitor metrics history, keyed by session_id.
     pub monitor_history: TokioRwLock<HashMap<String, Arc<TokioRwLock<MetricsHistory>>>>,
+    /// Team encryption key (derived from passphrase, held in memory, zeroed on exit).
+    pub team_key: TokioRwLock<Option<Zeroizing<[u8; 32]>>>,
+    /// Team Git repository local path.
+    pub team_repo_path: TokioRwLock<Option<PathBuf>>,
 }
 
 impl AppState {
@@ -86,6 +91,8 @@ impl AppState {
             pending_host_key_decisions: TokioRwLock::new(HashMap::new()),
             monitor_collectors: TokioRwLock::new(HashMap::new()),
             monitor_history: TokioRwLock::new(HashMap::new()),
+            team_key: TokioRwLock::new(None),
+            team_repo_path: TokioRwLock::new(None),
         };
 
         // Initialize keychain (reads single store entry → at most 1 OS prompt)

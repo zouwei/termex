@@ -91,6 +91,15 @@ pub struct Server {
     pub last_connected: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    /// Whether this server is shared with the team.
+    #[serde(default)]
+    pub shared: bool,
+    /// Team identifier (e.g., "team:DevOps Alpha").
+    pub team_id: Option<String>,
+    /// Username of the member who shared this server.
+    pub shared_by: Option<String>,
+    /// When this server was shared.
+    pub shared_at: Option<String>,
 }
 
 // ============================================================

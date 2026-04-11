@@ -9,6 +9,7 @@ import SecurityTab from "./SecurityTab.vue";
 import AiConfigTab from "./AiConfigTab.vue";
 import HighlightsTab from "./HighlightsTab.vue";
 import MonitorTab from "./MonitorTab.vue";
+import TeamTab from "./TeamTab.vue";
 import DataTab from "./DataTab.vue";
 
 const { t } = useI18n();
@@ -45,6 +46,7 @@ const tabs = computed(() => [
   { name: "security", label: t("settings.security") },
   { name: "ai", label: t("settings.aiConfig") },
   { name: "monitor", label: t("settings.monitor") },
+  { name: "team", label: t("settings.team") },
   { name: "data", label: t("settings.data") },
 ]);
 </script>
@@ -110,6 +112,7 @@ const tabs = computed(() => [
         <SecurityTab v-else-if="activeTab === 'security'" />
         <AiConfigTab v-else-if="activeTab === 'ai'" />
         <MonitorTab v-else-if="activeTab === 'monitor'" />
+        <TeamTab v-else-if="activeTab === 'team'" />
         <DataTab v-else-if="activeTab === 'data'" />
         <div v-else class="text-gray-500 text-xs py-4">
           {{ tabs.find(t => t.name === activeTab)?.label }} — Coming soon

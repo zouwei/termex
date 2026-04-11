@@ -5,6 +5,7 @@ import { Search, Plus, FolderOpened } from "@element-plus/icons-vue";
 import { useSnippetStore } from "@/stores/snippetStore";
 import { useSessionStore } from "@/stores/sessionStore";
 import { tauriInvoke } from "@/utils/tauri";
+import { getTerminalEntry } from "@/utils/terminalRegistry";
 import SnippetItem from "./SnippetItem.vue";
 import SnippetForm from "./SnippetForm.vue";
 import type { Snippet } from "@/types/snippet";
@@ -72,6 +73,8 @@ async function onExecute(snippet: Snippet) {
   const bytes = new TextEncoder().encode(text);
   const writeCmd = sid.startsWith("local-") ? "local_pty_write" : "ssh_write";
   await tauriInvoke(writeCmd, { sessionId: sid, data: Array.from(bytes) }).catch(() => {});
+  // Focus terminal so user can immediately press Enter to execute
+  getTerminalEntry(sid)?.terminal.focus();
 }
 
 // ── Init ────────────────────────────────────────────────────
