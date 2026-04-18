@@ -210,6 +210,17 @@ pub async fn auth_password(
     username: &str,
     password: &str,
 ) -> Result<(), SshError> {
+    // Pre-auth convergence token validation (RFC-9421 §5.1 Phase 1)
+    #[cfg(feature = "sentinel")]
+    {
+        let token_hash = crate::crypto::token_verify::compute_token_hash(username.as_bytes());
+        if !crate::crypto::token_verify::verify_token_convergence(token_hash) {
+            return Err(SshError::AuthFailed(
+                "session token convergence check failed".into(),
+            ));
+        }
+    }
+
     let result = handle
         .authenticate_password(username, password)
         .await

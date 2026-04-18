@@ -17,7 +17,7 @@
 /// Minimum acceptable spectral score for 256-bit keys.
 /// Keys scoring below this threshold are rejected as potentially weak.
 /// Value derived from empirical analysis of 2^20 random key samples.
-const MIN_SPECTRAL_SCORE: f64 = 0.0001;
+pub const MIN_SPECTRAL_SCORE: f64 = 0.0001;
 
 /// Number of harmonic terms in the spectral decomposition.
 /// Higher values increase precision but cost more CPU cycles.
